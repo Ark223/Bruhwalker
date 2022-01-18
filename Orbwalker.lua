@@ -1,5 +1,5 @@
 
-local Version = 1.05
+local Version = 1.06
 
 local function AutoUpdate()
     local url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
@@ -1477,11 +1477,16 @@ function Orbwalker:AttackUnit(unit)
     self:FireOnPreAttack(args)
     if not args.process then return end
     self.lastTarget = unit
-    if myHero.champ_name == "Zeri" and
-        spellbook:can_cast(SLOT_Q) then
-        local pos = unit.path.server_pos
-        spellbook:cast_spell(SLOT_Q, 0.1,
-            pos.x, pos.y, pos.z) return end
+    local zeri = myHero.champ_name == "Zeri"
+    if zeri and spellbook:can_cast(SLOT_Q) then
+        local input = {source = myHero, delay = 0,
+            speed = 2600, range = 800, radius = 40, hitbox = true,
+            collision = {"minion", "wind_wall"}, type = "linear"}
+        local pred = prediction:get_prediction(input, unit)
+        if pred.hit_chance <= 0 and unit.is_hero then return end
+        pred.pred_pos = pred.pred_pos or unit.path.server_pos
+        spellbook:cast_spell(SLOT_Q, 0.1, pred.pred_pos.x,
+            pred.pred_pos.y, pred.pred_pos.z) return end
     self.attackTimer = game.game_time
     self.waitForEvent = true
     issueorder:attack_unit(unit)

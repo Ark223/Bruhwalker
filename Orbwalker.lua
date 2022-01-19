@@ -1174,21 +1174,21 @@ end
 
 function Geometry:IsInAutoAttackRange(unit)
     local range = Data:GetAutoAttackRange()
+    local hitbox = unit.bounding_radius
     if myHero.champ_name == "Aphelios"
         and unit.is_hero and unit:has_buff(
         "aphelioscalibrumbonusrangedebuff")
-        then range = 1800
+        then range, hitbox = 1800, 0
     elseif myHero.champ_name == "Caitlyn"
         and (unit:has_buff("caitlynwsight")
         or unit:has_buff("CaitlynEMissile"))
         then range = range + 425
     elseif myHero.champ_name == "Zeri"
         and spellbook:can_cast(SLOT_Q)
-        then range = 800 end
+        then range, hitbox = 800, 0 end
     local p1 = myHero.path.server_pos
     local p2 = unit.path ~= nil and
         unit.path.server_pos or unit.origin
-    local hitbox = unit.bounding_radius
     local dist = self:DistanceSqr(p1, p2)
     return dist <= (range + hitbox) ^ 2
 end
@@ -1473,21 +1473,21 @@ end
 function Orbwalker:AttackUnit(unit)
     if self:HasAttacked() then return end
     if self.forcedPos then return end
-    local args = {target = unit, process = true}
-    self:FireOnPreAttack(args)
-    if not args.process then return end
-    self.lastTarget = unit
     local zeri = myHero.champ_name == "Zeri"
     if zeri and spellbook:can_cast(SLOT_Q) then
         local input = {source = myHero, delay = 0,
-            speed = 2600, range = 800, radius = 40, hitbox = true,
-            collision = {"minion", "wind_wall"}, type = "linear"}
+            speed = 2600, range = 800, radius = 40,
+            hitbox = true, collision = nil, type = "linear"}
         local pred = prediction:get_prediction(input, unit)
         if pred.hit_chance <= 0 and unit.is_hero then return end
         pred.pred_pos = pred.pred_pos or unit.path.server_pos
         spellbook:cast_spell(SLOT_Q, 0.1, pred.pred_pos.x,
             pred.pred_pos.y, pred.pred_pos.z) return end
+    local args = {target = unit, process = true}
+    self:FireOnPreAttack(args)
+    if not args.process then return end
     self.attackTimer = game.game_time
+    self.lastTarget = unit
     self.waitForEvent = true
     issueorder:attack_unit(unit)
 end

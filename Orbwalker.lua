@@ -1123,7 +1123,7 @@ function Data:IsValid(unit)
 end
 
 function Data:Latency()
-    return game.ping / 1000 + 0.034
+    return game.ping / 1000 + 0.05
 end
 
 --------------------
@@ -1570,7 +1570,7 @@ function Orbwalker:GetWindupTime()
 end
 
 function Orbwalker:HasAttacked()
-    local latency = self.data:Latency() - 0.034
+    local latency = self.data:Latency() - 0.05
     return self.waitForEvent and game.game_time -
         self.attackTimer <= math.max(0.1, latency)
 end
@@ -1726,10 +1726,10 @@ function Orbwalker:UpdateMinionData()
         return m.champ_name:find("Minion") end)
     if #waveMinions == 0 then
         self.waveMinions = Linq() return end
-    local canMove = self:CanMove(0.034)
+    local canMove = self:CanMove(0.05)
     local canAttack = self:CanAttack(0)
     local pos = myHero.path.server_pos
-    local latency = self.data:Latency() - 0.034
+    local latency = self.data:Latency() - 0.05
     local waitTime = self:GetAnimationTime() * 2
     local speed = self.data:GetProjectileSpeed()
     local delay = menu:get_value(self.s_farm) * 0.001

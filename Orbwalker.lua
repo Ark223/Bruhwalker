@@ -1,11 +1,11 @@
 
-local Version = 1.06
+local Version = 1.07
+local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
-    local url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
-    local result = http:get(url .. "Orbwalker.version")
+    local result = http:get(Url .. "Orbwalker.version")
     if result and result ~= "" and tonumber(result) > Version then
-        http:download_file(url .. "Orbwalker.lua", "Orbwalker.lua")
+        http:download_file(Url .. "Orbwalker.lua", "Orbwalker.lua")
         console:log("[Orbwalker] Successfully updated. Please reload!")
     end
 end
@@ -24,6 +24,13 @@ end
 local myHero = game.local_player
 local prediction = _G.Prediction
 if not prediction then return end
+
+local Logo = os.getenv('APPDATA'):gsub("Roaming",
+    "Local\\leaguesense\\scripts\\Orbwalker.png")
+if not file_manager:file_exists(Logo) then
+    local name = Url .. "Orbwalker.png"
+    http:download_file(name, "Orbwalker.png")
+end
 
 --------------------------------------
 -- Language INtegrated Query (LINQ) --
@@ -1417,7 +1424,7 @@ function Orbwalker:__init()
     self.baseAttackSpeed = 1 / (myHero.attack_delay * myHero.attack_speed)
     self.baseWindupTime = 1 / (myHero.attack_cast_delay * myHero.attack_speed)
     self.gravesDelay = function(delay) return 1.422 * delay - 1.525 end
-    self.menu = menu:add_category("Orbwalker v" .. tostring(Version))
+    self.menu = menu:add_category_sprite("Orbwalker [Lua]", Logo)
     self.main = menu:add_subcategory("Main Settings", self.menu)
     self.b_orbon = menu:add_checkbox("Enable Orbwalking", self.main, 1)
     self.b_reset = menu:add_checkbox("Reset Attacks", self.main, 1, "Resets auto-attack timer when hero casts a specific spell.")
@@ -1463,6 +1470,8 @@ function Orbwalker:__init()
     self.b_humanon = menu:add_checkbox("Enable Humanizer", self.humanizer, 1)
     self.s_min = menu:add_slider("Min Move Delay", self.humanizer, 75, 200, 125)
     self.s_max = menu:add_slider("Max Move Delay", self.humanizer, 75, 200, 175)
+    self.creator = menu:add_label("Creator: Uncle Ark", self.menu)
+    self.version = menu:add_label("Version: " .. tostring(Version), self.menu)
     client:set_event_callback("on_tick", function() self:OnTick() end)
     client:set_event_callback("on_draw", function() self:OnDraw() end)
     client:set_event_callback("on_process_spell", function(...) self:OnProcessSpell(...) end)

@@ -1,5 +1,5 @@
 
-local Version = 1.07
+local Version = 1.08
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1009,10 +1009,12 @@ function Data:__init()
         ["Meditate"] = true, ["NasusQ"] = true, ["NautilusPiercingGaze"] = true,
         ["Takedown"] = true, ["RekSaiQ"] = true, ["RenektonPreExecute"] = true,
         ["RengarQ"] = true, ["RengarQEmp"] = true, ["RivenTriCleave"] = true,
-        ["SejuaniE"] = true, ["SettQ"] = true, ["ShyvanaDoubleAttack"] = true, ["SivirW"] = true,
-        ["TalonQ"] = true, ["VayneTumble"] = true, ["TrundleTrollSmash"] = true, ["ViE"] = true,
-        ["ViegoW"] = true, ["VolibearQ"] = true, ["MonkeyKingDoubleAttack"] = true,
-        ["XinZhaoQ"] = true, ["YorickQ"] = true, ["ZacQ"] = true, ["ZeriE"] = true
+        ["SejuaniE"] = true, ["SettQ"] = true, ["ShyvanaDoubleAttack"] = true,
+        ["SivirW"] = true, ["SonaQPassiveAttack"] = true, ["SonaWPassiveAttack"] = true,
+        ["SonaEPassiveAttack"] = true, ["TalonQ"] = true, ["VayneTumble"] = true,
+        ["TrundleTrollSmash"] = true, ["ViE"] = true, ["ViegoW"] = true, ["VolibearQ"] = true,
+        ["MonkeyKingDoubleAttack"] = true, ["XinZhaoQ"] = true, ["YorickQ"] = true,
+        ["ZacQ"] = true, ["ZeriE"] = true
     }
     self.apheliosProjectileSpeeds = Linq({
         [1] = {buff = "ApheliosCalibrumManager", speed = 2500},

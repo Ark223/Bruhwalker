@@ -870,7 +870,7 @@ function Damage:__init()
             args.rawPhysical = args.rawPhysical + 2 * source.base_attack_damage
         end,
         [6664] = function(args) local source = args.source -- Turbo Chemtank
-            local buff = source:has_buff("item6664counter")
+            local buff = source:get_buff("item6664counter")
             if not buff or buff.stacks2 ~= 100 then return end
             args.rawMagical = args.rawMagical + 35.29 + 4.71 * source.level
                 + 0.01 * source.max_health + 0.03 * source.move_speed

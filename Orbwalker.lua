@@ -1,5 +1,5 @@
 
-local Version = 1.08
+local Version = 1.09
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1408,6 +1408,7 @@ function Orbwalker:__init()
     self.lastTarget = nil
     self.attacksEnabled = true
     self.canFirePostEvent = true
+    self.isMouseButtonDown = false
     self.movementEnabled = true
     self.waitForEvent = false
     self.onBasicAttack = {}
@@ -1437,7 +1438,6 @@ function Orbwalker:__init()
     self.s_windup = menu:add_slider("Extra Windup Time", self.main, 0, 100, 0)
     self.s_hradius = menu:add_slider("Hold Radius", self.main, 50, 150, 75)
     self.farm = menu:add_subcategory("Farm Settings", self.menu)
-    self.b_fastclear = menu:add_checkbox("Fast Lane Clear", self.farm, 0, "No longer waits for last-hit and keeps attacking.")
     self.b_stack = menu:add_checkbox("Focus Most Stacked", self.farm, 0, "Attacks minions containing applied stacks as first.")
     self.b_priocn = menu:add_checkbox("Prioritize Cannon Minions", self.farm, 1, "Last-hits a cannon minion first without any condition check.")
     self.b_priolh = menu:add_checkbox("Prioritize Last Hits", self.farm, 0, "Harass mode will focus on last-hit instead of enemy hero.")
@@ -1660,11 +1660,11 @@ function Orbwalker:GetOrbwalkerTarget(mode)
         end
     end
     if mode == 3 then
+        local fast = self.isMouseButtonDown
         -- attack a pet for ex. Annie's Tibbers
         if #self.pets > 0 then return self.pets[1] end
-        local fast = menu:get_value(self.b_fastclear)
         local turret = self.objectManager:GetClosestAllyTurret()
-        if fast == 0 and turret ~= nil then
+        if not fast and turret ~= nil then
             -- under-turret logic
             local turretMinions = self.waveMinions:Where(function(m)
                 local obj = m.gameObject; local waypoints = obj.path.waypoints
@@ -1679,7 +1679,7 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             end if #turretMinions > 0 then return nil end
         end
         local shouldWait = self:ShouldWait(support)
-        if fast == 0 and shouldWait then return nil end
+        if not fast and shouldWait then return nil end
         -- attack the closest turret
         local turret = self.objectManager:GetEnemyTurret()
         if turret ~= nil then return turret end
@@ -1690,7 +1690,7 @@ function Orbwalker:GetOrbwalkerTarget(mode)
         local ward = self.objectManager:GetEnemyWard()
         if ward ~= nil then return ward end
         -- lane clear the wave minions
-        local mod = fast == 1 and 0 or support == 0 and 2 or 3
+        local mod = fast and 0 or support == 0 and 2 or 3
         local minions = self.waveMinions:Where(function(m)
             return mod == 0 or m.clearPred > mod * m.damage or
             mod == 2 and m.clearPred == m.gameObject.health end)
@@ -1732,15 +1732,15 @@ function Orbwalker:UpdateMinionData()
     local canAttack = self:CanAttack(0)
     local pos = myHero.path.server_pos
     local latency = self.data:Latency() - 0.05
-    local waitTime = self:GetAnimationTime() * 2
+    local wait = self:GetAnimationTime() + 0.25
     local speed = self.data:GetProjectileSpeed()
     local delay = menu:get_value(self.s_farm) * 0.001
     local windup = self:GetWindupTime() + latency * 0.5
     self.waveMinions = waveMinions:Select(function(m)
         local damage = self.damage:CalcAutoAttackDamage(myHero, m)
         local timeToHit = self.geometry:Distance(pos, m.origin) / speed + windup
-        local clearPred = prediction:get_lane_clear_health_prediction(m, waitTime)
-        local freezePred = prediction:get_health_prediction(m, timeToHit + 1)
+        local clearPred = prediction:get_lane_clear_health_prediction(m, wait + timeToHit)
+        local freezePred = prediction:get_health_prediction(m, timeToHit + latency + 1)
         local healthPred = prediction:get_health_prediction(m, timeToHit, delay)
         local killPred = prediction:get_health_prediction(m, timeToHit - latency)
         if canMove and not canAttack and killPred <= 0 then self:FireOnUnkillable(m) end
@@ -1937,6 +1937,11 @@ function Orbwalker:OnStopCast(unit, args)
 end
 
 function Orbwalker:OnWndProc(msg, wparam)
+    if msg == 513 and wparam == 1 then
+        self.isMouseButtonDown = true
+    elseif msg == 514 and wparam == 0 then
+        self.isMouseButtonDown = false
+    end
     if menu:get_value(self.b_focus) == 0
         or msg ~= 514 or wparam ~= 0 or
         game.is_shop_opened then return end

@@ -1506,12 +1506,10 @@ end
 function Orbwalker:CanAttack(delay)
     if self:HasAttacked() then return false end
     if evade:is_evading() then return false end
+    local sight = not myHero:has_buff_type(26)
     local zeri = myHero.champ_name == "Zeri"
-    if zeri and spellbook:can_cast(SLOT_Q) and not
-        self:IsAutoAttacking(0) then return true end
-    local blind = myHero:has_buff_type(26)
     local kalista = myHero.champ_name == "Kalista"
-    if not kalista and blind then return false end
+    if not (zeri or kalista or sight) then return false end
     if not self.data:CanOrbwalk() then return false end
     if not self.data:CanAttack() then return false end
     local graves = myHero.champ_name == "Graves"
@@ -1519,6 +1517,7 @@ function Orbwalker:CanAttack(delay)
     if not kalista and dashElapsed < 0.2 then return false end
     if graves and not myHero:has_buff("gravesbasicattackammo1")
         or myHero.is_winding_up then return false end
+    if zeri and spellbook:can_cast(SLOT_Q) then return true end
     local extraAnimation = menu:get_value(self.s_anim) * 0.001
     local endTime = self.attackTimer + self:GetAnimationTime()
     return game.game_time >= endTime + extraAnimation + delay
@@ -1602,7 +1601,7 @@ function Orbwalker:MoveTo()
     local tmin = menu:get_value(self.s_min)
     local tmax = menu:get_value(self.s_max)
     local delay = menu:get_value(self.b_humanon) == 1
-        and math.random(tmin, tmax) * 0.001 or 0.01
+        and math.random(tmin, tmax) * 0.001 or 0.00
     local args = {position = position, process = true}
     self:FireOnPreMovement(args)
     if not args.process then return end

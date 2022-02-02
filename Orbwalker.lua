@@ -1,5 +1,5 @@
 
-local Version = 1.09
+local Version = 1.1
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1601,11 +1601,11 @@ function Orbwalker:MoveTo()
     local tmin = menu:get_value(self.s_min)
     local tmax = menu:get_value(self.s_max)
     local delay = menu:get_value(self.b_humanon) == 1
-        and math.random(tmin, tmax) * 0.001 or 0.00
+        and math.random(tmin, tmax) * 0.001 or 0.034
     local args = {position = position, process = true}
     self:FireOnPreMovement(args)
     if not args.process then return end
-    issueorder:move(position)
+    issueorder:move_fast(position)
     self.moveTimer = game.game_time + delay
     if self.forcedPos then self.forcedPos = nil end
 end

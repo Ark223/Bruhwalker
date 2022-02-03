@@ -100,6 +100,7 @@ end
 
 function BaseUlt:CalculateHitTime()
     local spell = SpellData[myHero.champ_name]
+    if spell == nil then return 0.0 end
     local dist = self:BaseDistance(myHero.origin)
     local jinx = myHero.champ_name == "Jinx"
     -- super advanced formula right here

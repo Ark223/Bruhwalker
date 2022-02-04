@@ -1,5 +1,5 @@
 
-local Version = 1.0
+local Version = 1.01
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -79,7 +79,7 @@ function BaseUlt:__init()
     self.height = game.screen_size.height
     self.len = math.floor(0.25 * self.width)
     self.x = math.floor((self.width - self.len) / 2)
-    self.y = math.floor(0.675 * self.height)
+    self.y = math.floor(0.7 * self.height)
     self.p1 = {x = self.x, y = self.y}
     self.p2 = {x = self.x + self.len, y = self.y}
     self.p3 = {x = self.x + self.len, y = self.y + 30}

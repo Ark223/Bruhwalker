@@ -1,5 +1,5 @@
 
-local Version = 1.1
+local Version = 1.11
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1159,8 +1159,8 @@ function Geometry:DrawPolygon(polygon, color, width)
     if size < 3 then return end
     for i = 1, size do
         local p1, p2 = polygon[i], polygon[i % size + 1]
-        local a = game:world_to_screen(p1.x, p1.y, p1.z)
-        local b = game:world_to_screen(p2.x, p2.y, p2.z)
+        local a = game:world_to_screen_2(p1.x, p1.y, p1.z)
+        local b = game:world_to_screen_2(p2.x, p2.y, p2.z)
         renderer:draw_line(a.x, a.y, b.x, b.y, w, c.r, c.g, c.b, c.a)
     end
 end
@@ -1889,7 +1889,7 @@ function Orbwalker:OnDraw()
         -- HP bar total damage split overlay
         local drawIndicator = menu:get_value(self.b_indicator) == 1
         if not drawIndicator or not m.healthPred then return end
-        local pos = {x = bar.pos.x - 31, y = bar.pos.y - 5}
+        local pos = {x = bar.pos.x - 31, y = bar.pos.y - 6}
         local isSuper = o.champ_name:find("Super")
         if isSuper then pos.x = pos.x - 15 end
         local origin = {x = pos.x, y = pos.y}

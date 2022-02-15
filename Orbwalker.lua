@@ -1,5 +1,5 @@
 
-local Version = 1.11
+local Version = 1.12
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1517,7 +1517,9 @@ function Orbwalker:CanAttack(delay)
     if not kalista and dashElapsed < 0.2 then return false end
     if graves and not myHero:has_buff("gravesbasicattackammo1")
         or myHero.is_winding_up then return false end
+    local loading = zeri and myHero.passive_count < 100
     if zeri and spellbook:can_cast(SLOT_Q) then return true end
+    if loading and self.orbwalkMode == 1 then return false end
     local extraAnimation = menu:get_value(self.s_anim) * 0.001
     local endTime = self.attackTimer + self:GetAnimationTime()
     return game.game_time >= endTime + extraAnimation + delay

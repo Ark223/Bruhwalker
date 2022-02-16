@@ -1,5 +1,5 @@
 
-local Version = 1.01
+local Version = 1.02
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -33,7 +33,7 @@ local DamageType = {["PHYSICAL"] = 0, ["MAGICAL"] = 1}
 
 local SpellData = {
     ["Ashe"] = {
-        speed = 1600, delay = 0.25, radius = 130,
+        speed = 1500, delay = 0.25, radius = 130,
         collision = true, type = DamageType.MAGICAL,
         damage = function(level, target) return
             200 * level + myHero.ability_power end
@@ -102,9 +102,11 @@ function BaseUlt:CalculateHitTime()
     local spell = SpellData[myHero.champ_name]
     if spell == nil then return 0.0 end
     local dist = self:BaseDistance(myHero.origin)
+    local ashe = myHero.champ_name == "Ashe"
     local jinx = myHero.champ_name == "Jinx"
-    -- super advanced formula right here
-    if jinx then spell.speed = 2200 - 743250 / dist end
+    -- super advanced formulas right here
+    if ashe then spell.speed = (2100 * dist) / (dist + 900)
+    elseif jinx then spell.speed = 2200 - 743250 / dist end
     local duration = spell.delay + dist / spell.speed
     return duration + spell.radius / spell.speed
 end

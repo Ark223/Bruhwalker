@@ -1,5 +1,5 @@
 
-local Version = 1.12
+local Version = 1.13
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1194,7 +1194,7 @@ function Geometry:IsInAutoAttackRange(unit)
         then range = range + 425
     elseif myHero.champ_name == "Zeri"
         and spellbook:can_cast(SLOT_Q)
-        then range, hitbox = 800, 0 end
+        then range, hitbox = 825, 0 end
     local p1 = myHero.path.server_pos
     local p2 = unit.path ~= nil and
         unit.path.server_pos or unit.origin
@@ -1487,7 +1487,7 @@ function Orbwalker:AttackUnit(unit)
     local zeri = myHero.champ_name == "Zeri"
     if zeri and spellbook:can_cast(SLOT_Q) then
         local input = {source = myHero, delay = 0,
-            speed = 2600, range = 800, radius = 40,
+            speed = 2600, range = 825, radius = 40,
             hitbox = true, collision = nil, type = "linear"}
         local pred = prediction:get_prediction(input, unit)
         if pred.hit_chance <= 0 and unit.is_hero then return end
@@ -1514,7 +1514,8 @@ function Orbwalker:CanAttack(delay)
     if not self.data:CanAttack() then return false end
     local graves = myHero.champ_name == "Graves"
     local dashElapsed = game.game_time - self.dashTimer
-    if not kalista and dashElapsed < 0.2 then return false end
+    local dashing = dashElapsed < (graves and 0.2 or 0.034)
+    if not kalista and dashing == true then return false end
     if graves and not myHero:has_buff("gravesbasicattackammo1")
         or myHero.is_winding_up then return false end
     local loading = zeri and myHero.passive_count < 100
@@ -1535,7 +1536,8 @@ function Orbwalker:CanMove(delay)
         or kalista == true then return true end
     local graves = myHero.champ_name == "Graves"
     local dashElapsed = game.game_time - self.dashTimer
-    if not kalista and dashElapsed < 0.2 then return false end
+    local dashing = dashElapsed < (graves and 0.2 or 0.034)
+    if not kalista and dashing == true then return false end
     if not graves and myHero.is_winding_up then return false end
     return not self:IsAutoAttacking(delay)
 end

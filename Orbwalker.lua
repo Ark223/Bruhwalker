@@ -1,5 +1,5 @@
 
-local Version = 1.13
+local Version = 1.14
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1192,8 +1192,9 @@ function Geometry:IsInAutoAttackRange(unit)
         and (unit:has_buff("caitlynwsight")
         or unit:has_buff("CaitlynEMissile"))
         then range = range + 425
-    elseif myHero.champ_name == "Zeri"
-        and spellbook:can_cast(SLOT_Q)
+    elseif self.b_zeri ~= nil and
+        spellbook:can_cast(SLOT_Q) and
+        menu:get_value(self.b_zeri) == 1
         then range, hitbox = 825, 0 end
     local p1 = myHero.path.server_pos
     local p2 = unit.path ~= nil and
@@ -1434,6 +1435,7 @@ function Orbwalker:__init()
     self.b_support = menu:add_checkbox("Support Mode", self.main, 0, "Turns off last-hits and helps your ally to laneclear faster.")
     self.b_windwall = menu:add_checkbox("Windwall Check", self.main, 0, "Blocks auto-attack if it would collide with windwall.")
     if myHero.champ_name == "Akshan" then self.b_akshan = menu:add_toggle("Use Passive On Hero", 1, self.main, string.byte("N"), true) end
+    if myHero.champ_name == "Zeri" then self.b_zeri = menu:add_checkbox("Use Burst Fire [Q]", self.main, 1) end
     self.s_anim = menu:add_slider("Extra Animation Time", self.main, 0, 100, 0)
     self.s_windup = menu:add_slider("Extra Windup Time", self.main, 0, 100, 0)
     self.s_hradius = menu:add_slider("Hold Radius", self.main, 50, 150, 75)
@@ -1484,8 +1486,8 @@ end
 function Orbwalker:AttackUnit(unit)
     if self:HasAttacked() then return end
     if self.forcedPos then return end
-    local zeri = myHero.champ_name == "Zeri"
-    if zeri and spellbook:can_cast(SLOT_Q) then
+    if self.b_zeri and spellbook:can_cast(SLOT_Q)
+        and menu:get_value(self.b_zeri) == 1 then
         local input = {source = myHero, delay = 0,
             speed = 2600, range = 825, radius = 40,
             hitbox = true, collision = nil, type = "linear"}
@@ -1519,7 +1521,8 @@ function Orbwalker:CanAttack(delay)
     if graves and not myHero:has_buff("gravesbasicattackammo1")
         or myHero.is_winding_up then return false end
     local loading = zeri and myHero.passive_count < 100
-    if zeri and spellbook:can_cast(SLOT_Q) then return true end
+    if zeri and menu:get_value(self.b_zeri) == 1 and
+        spellbook:can_cast(SLOT_Q) then return true end
     if loading and self.orbwalkMode == 1 then return false end
     local extraAnimation = menu:get_value(self.s_anim) * 0.001
     local endTime = self.attackTimer + self:GetAnimationTime()

@@ -1,5 +1,5 @@
 
-local Version = 1.14
+local Version = 1.15
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -11,13 +11,14 @@ local function AutoUpdate()
 end
 
 local Class = function(...)
-    local cls = {}; cls.__index = cls
-    cls.__call = function(_, ...) return cls:New(...) end
+    local cls = {}
+    cls.__index = cls
     function cls:New(...)
         local instance = setmetatable({}, cls)
         cls.__init(instance, ...)
         return instance
     end
+    cls.__call = function(_, ...) return cls:New(...) end
     return setmetatable(cls, {__call = cls.__call})
 end
 
@@ -682,8 +683,9 @@ function Damage:__init()
         ["Vayne"] = function(args) local source = args.source
             if source:has_buff("vaynetumblebonus") then
                 local lvl = spellbook:get_spell_slot(SLOT_Q).level
-                args.rawPhysical = args.rawPhysical + (0.55 +
-                    0.05 * lvl) * source.total_attack_damage
+                local bonus = source.bonus_attack_damage
+                local mod = (1.55 + 0.05 * lvl) * bonus
+                args.rawPhysical = args.rawPhysical + mod
             end
             local buff = args.unit:get_buff("VayneSilveredDebuff")
             if not buff or buff.count ~= 2 then return end
@@ -1638,6 +1640,13 @@ function Orbwalker:GetOrbwalkerTarget(mode)
     if #self.objectManager:GetAllyHeroes(1500) == 0
         and support == 1 then support = 0 end
     if mode >= 2 and mode <= 5 and support == 0 then
+        -- wait for cannon minion to last hit
+        local prioCannon = menu:get_value(self.b_priocn) == 1
+        local waitCannon = self.waveMinions:Any(function(m)
+            return m.gameObject.champ_name:find("Siege") and
+            m.clearPred <= m.damage and m.clearPred ~=
+            m.gameObject.health and not m.killable end)
+        if prioCannon and waitCannon then return nil end
         -- last hit a wave minion
         local minions = self.waveMinions:Where(
             function(m) return m.killable end)
@@ -1646,7 +1655,6 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             m.freezePred > 0 end) then return nil end
         if #minions > 0 then
             -- prioritize cannon minions
-            local prioCannon = menu:get_value(self.b_priocn) == 1
             if prioCannon then table.merge_sort(minions, function(a, b)
                 local a_obj, b_obj = a.gameObject, b.gameObject
                 local a_siege = a_obj.champ_name:find("Siege")
@@ -1656,7 +1664,7 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             if prioCannon and minion.gameObject.champ_name:find(
                 "Siege") then return minion.gameObject end
             local attacked = self.waveMinions:First(function(m)
-                return m.clearPred <= 0 and m.healthPred > 0
+                return m.clearPred <= 0 and m.killPred > 0
                 and m.gameObject ~= minion.gameObject end)
             if attacked ~= nil and minion.clearPred > 0 then
                 -- two candidates, decide if should last hit or wait

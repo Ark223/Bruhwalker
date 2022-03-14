@@ -66,7 +66,7 @@
 
 --]]
 
-local Version = 1.26
+local Version = 1.27
 
 local function AutoUpdate()
     local url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
@@ -958,13 +958,12 @@ end
 function Pred:OnProcessSpell(unit, args)
     if not unit.is_valid or not unit.is_alive then return end
     local charName, name = unit.champ_name, args.spell_name
-    local castTimer = game.game_time - self:Latency() * 0.5
     if unit.is_hero and self.data[unit.object_id]
         and unit.object_id ~= myHero.object_id then
         local data = self.data[unit.object_id]
         if args.cast_delay and args.cast_delay > 0 then
-            data.castEndTimer = castTimer + args.cast_delay
-            data.pathTimer = castTimer
+            data.castEndTimer = game.game_time + args.cast_delay
+            data.pathTimer = game.game_time
         end
         if Blinks[charName] and Blinks[charName][name] then
             local blink = Blinks[charName][name]
@@ -973,7 +972,7 @@ function Pred:OnProcessSpell(unit, args)
             endPos = startPos:Extend(endPos, math.min(
                 blink.range, startPos:Distance(endPos)))
             data.blink = {pos = endPos, endTime =
-                castTimer + blink.windup}
+                game.game_time + blink.windup}
         elseif PreDashes[charName] and PreDashes[charName][name] then
             local preDash = PreDashes[charName][name]
             local startPos = Point:New(args.start_pos)
@@ -981,7 +980,7 @@ function Pred:OnProcessSpell(unit, args)
             local dir = (endPos - startPos):Normalize()
             local pos = startPos + dir * preDash.offset
             data.preDash = {pos = pos, endTime =
-                castTimer + preDash.windup}
+                game.game_time + preDash.windup}
         elseif name == "YasuoW" then
             local startPos = Point:New(args.start_pos)
             local endPos = Point:New(args.end_pos)
@@ -993,7 +992,7 @@ function Pred:OnProcessSpell(unit, args)
             self.windwalls[#self.windwalls + 1] = {
                 cornerA = pos - perp * width,
                 cornerB = pos + perp * width,
-                timer = castTimer
+                timer = game.game_time
             }
         end
     elseif args.target and args.is_autoattack
@@ -1007,12 +1006,15 @@ function Pred:OnProcessSpell(unit, args)
             or unit.is_turret) then return end
         local heroPos = Point:New(myHero.origin)
         local targetPos = Point:New(target.origin)
-        if heroPos:Distance(targetPos) > 1500 then return end
-        local speed = unit:get_basic_attack_data().missile_speed
-        self.targets[unit.object_id] =
-            {timer = castTimer, target = target}
+        local distance = heroPos:Distance(targetPos)
+        if distance > 1500 then return end
+        local attack = unit:get_basic_attack_data()
+        local speed = attack.missile_speed or nil
+        self.targets[unit.object_id] = {timer =
+            game.game_time, target = target}
         self.attacks[#self.attacks + 1] = {
-            processed = false, timer = castTimer,
+            processed = false,
+            timer = game.game_time,
             source = unit, target = target,
             start_pos = Point:New(unit.origin),
             network_id = unit.object_id,
@@ -1039,11 +1041,8 @@ function Pred:OnStopCast(unit, args)
         unit.object_id == myHero.object_id
         or not args.stop_animation or not
         args.destroy_missile then return end
-    self.attacks:RemoveWhere(function(a)
-        local passed = game.game_time - a.timer
-        return unit.object_id == a.network_id
-            and passed <= a.windup_time + 0.2
-    end)
+    self.attacks:RemoveWhere(function(a) return
+        unit.object_id == a.network_id end)
 end
 
 ------------------------

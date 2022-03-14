@@ -1,5 +1,5 @@
 
-local Version = 1.15
+local Version = 1.16
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1664,8 +1664,8 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             if prioCannon and minion.gameObject.champ_name:find(
                 "Siege") then return minion.gameObject end
             local attacked = self.waveMinions:First(function(m)
-                return m.clearPred <= 0 and m.killPred > 0
-                and m.gameObject ~= minion.gameObject end)
+                return m.clearPred <= 0 and m.gameObject.health
+                > 0 and m.gameObject ~= minion.gameObject end)
             if attacked ~= nil and minion.clearPred > 0 then
                 -- two candidates, decide if should last hit or wait
                 local killable = attacked.damage > attacked.healthPred

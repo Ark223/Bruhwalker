@@ -144,42 +144,6 @@ function table.Where(source, func)
     return result
 end
 
------------------------------
--- Merge sorting algorithm --
-
-function Merge(array, left, mid, right, comp)
-    local i, j, k, temp = left, mid + 1, left, {}
-    for p = left, right do temp[p] = array[p] end
-    -- merge the temp arrays back into array
-    while i <= mid and j <= right do
-        if not comp(temp[i], temp[j]) then
-            array[k] = temp[i]
-            k, i = k + 1, i + 1
-        else
-            array[k] = temp[j]
-            k, j = k + 1, j + 1
-        end
-    end
-    -- copy the remaining elements
-    while i <= mid do
-        array[k] = temp[i]
-        k, i = k + 1, i + 1
-    end
-end
-
-function MergeSort(array, left, right, comp)
-    if left >= right then return end
-    local mid = math.floor((left + right) / 2)
-    MergeSort(array, left, mid, comp)
-    MergeSort(array, mid + 1, right, comp)
-    Merge(array, left, mid, right, comp)
-end
-
-table.merge_sort = function(array, comp)
-    MergeSort(array, 1, #array, comp or
-        function(a, b) return a > b end)
-end
-
 ----------------------
 -- Access validator --
 
@@ -1655,20 +1619,17 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             m.freezePred > 0 end) then return nil end
         if #minions > 0 then
             -- prioritize cannon minions
-            if prioCannon then table.merge_sort(minions, function(a, b)
-                local a_obj, b_obj = a.gameObject, b.gameObject
-                local a_siege = a_obj.champ_name:find("Siege")
-                local b_siege = b_obj.champ_name:find("Siege")
-                return a_siege and not b_siege end) end
+            local cannons = minions:Where(function(m) return
+                m.gameObject.champ_name:find("Siege") end)
+            if prioCannon and #cannons > 0 then
+                return cannons[1].gameObject end
             local minion = minions[#minions]
-            if prioCannon and minion.gameObject.champ_name:find(
-                "Siege") then return minion.gameObject end
             local attacked = self.waveMinions:First(function(m)
                 return m.clearPred <= 0 and m.gameObject.health
                 > 0 and m.gameObject ~= minion.gameObject end)
             if attacked ~= nil and minion.clearPred > 0 then
                 -- two candidates, decide if should last hit or wait
-                local killable = attacked.damage > attacked.healthPred
+                local killable = attacked.damage >= attacked.healthPred
                 return killable and attacked.gameObject or nil end
             return minions[1].gameObject
         end
@@ -1715,10 +1676,9 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             local stack = self.data.buffStackNames[myHero.champ_name]
             if stack and menu:get_value(self.b_stack) == 1 then
                 -- choose the most stacked minion
-                table.merge_sort(minions, function(a, b)
-                    return a.gameObject:has_buff(stack)
-                    and not b.gameObject:has_buff(stack)
-                end) minion = minions[#minions]
+                local stacked = minions:First(function(m)
+                    return m.gameObject:has_buff(stack) end)
+                if stacked ~= nil then minion = stacked end
             end
             if minion then return minion.gameObject end
         end

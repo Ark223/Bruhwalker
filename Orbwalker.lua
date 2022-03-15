@@ -1,5 +1,5 @@
 
-local Version = 1.16
+local Version = 1.17
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1047,6 +1047,7 @@ function Data:GetProjectileSpeed()
         local data = spellbook:get_spell_slot(SLOT_R)
         if data and data.level > 0 then return 5000 end
     elseif name == "Jayce" and ranged then return 2000
+    elseif name == "Seraphine" then return 1800
     elseif name == "Zeri" and ranged == true and
         spellbook:can_cast(SLOT_Q) then return 2600 end
     local data = self.specialProjectileSpeeds[name]

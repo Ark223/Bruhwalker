@@ -1,5 +1,5 @@
 
-local Version = 1.17
+local Version = 1.18
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -956,11 +956,16 @@ function Data:__init()
         ["SRU_Red"] = true, ["SRU_RiftHerald"] = true
     }
     self.petNames = {
-        ["AnnieTibbers"] = true, ["EliseSpiderling"] = true, ["HeimerTBlue"] = true,
-        ["HeimerTYellow"] = true, ["IvernMinion"] = true, ["KalistaSpawn"] = true,
-        ["MalzaharVoidling"] = true, ["SennaSoul"] = true, ["ShacoBox"] = true,
-        ["TeemoMushroom"] = true, ["YorickBigGhoul"] = true, ["YorickGhoulMelee"] = true,
-        ["YorickWGhoul"] = true, ["ZyraGraspingPlant"] = true, ["ZyraThornPlant"] = true
+        ["AniviaEgg"] = true, ["AnnieTibbers"] = true, ["ApheliosTurret"] = true,
+        ["BlueTrinket"] = true, ["EliseSpiderling"] = true, ["GangplankBarrel"] = true,
+        ["HeimerTBlue"] = true, ["HeimerTYellow"] = true, ["IllaoiMinion"] = true,
+        ["IvernMinion"] = true, ["JammerDevice"] = true, ["JhinTrap"] = true,
+        ["KalistaSpawn"] = true, ["MalzaharVoidling"] = true, ["NidaleeSpear"] = true,
+        ["SennaSoul"] = true, ["ShacoBox"] = true, ["SightWard"] = true,
+        ["TeemoMushroom"] = true, ["VoidGate"] = true, ["VoidSpawn"] = true,
+        ["YellowTrinket"] = true, ["YorickBigGhoul"] = true, ["YorickGhoulMelee"] = true,
+        ["YorickWGhoul"] = true, ["YorickWInvisible"] = true, ["ZacRebirthBloblet"] = true,
+        ["ZyraGraspingPlant"] = true, ["ZyraThornPlant"] = true
     }
     self.resetAttackNames = {
         ["AatroxE"] = true, ["AkshanBasicAttack"] = true, ["AkshanCritAttack"] = true,

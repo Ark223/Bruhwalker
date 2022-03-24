@@ -1,5 +1,5 @@
 
-local Version = 1.18
+local Version = 1.19
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1947,6 +1947,7 @@ _G.orbwalker = {
     enable_move = function(self) orb.movementEnabled = true end,
     force_target = function(self, target) orb.forcedTarget = target end,
     get_animation_time = function(self) return orb:GetAnimationTime() end,
+    get_attack_timer = function(self) return orb.attackTimer end,
     get_auto_attack_range = function(self, unit) return orb.data:GetAutoAttackRange(unit) end,
     get_orbwalker_target = function(self) return orb.lastTarget end,
     get_projectile_speed = function(self) return orb.data:GetProjectileSpeed() end,

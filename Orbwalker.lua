@@ -1,5 +1,5 @@
 
-local Version = 1.19
+local Version = 1.2
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -1630,13 +1630,12 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             if prioCannon and #cannons > 0 then
                 return cannons[1].gameObject end
             local minion = minions[#minions]
-            local attacked = self.waveMinions:First(function(m)
+            local focus = self.waveMinions:First(function(m)
                 return m.clearPred <= 0 and m.gameObject.health
                 > 0 and m.gameObject ~= minion.gameObject end)
-            if attacked ~= nil and minion.clearPred > 0 then
+            if focus ~= nil and minion.clearPred > 0 then
                 -- two candidates, decide if should last hit or wait
-                local killable = attacked.damage >= attacked.healthPred
-                return killable and attacked.gameObject or nil end
+                return focus.killable and focus.gameObject or nil end
             return minions[1].gameObject
         end
     end
@@ -1655,7 +1654,7 @@ function Orbwalker:GetOrbwalkerTarget(mode)
                 local damage = prediction:calc_auto_attack_damage(turret, unit)
                 if m.healthPred <= m.damage then return nil end
                 -- balance minions to make them last-hitable
-                if m.healthPred > 3 * damage or unit.health %
+                if m.clearPred > 3 * damage or m.healthPred %
                     damage > m.damage then return unit end
             end if #turretMinions > 0 then return nil end
         end

@@ -760,6 +760,9 @@ function Damage:__init()
         [1054] = function(args) -- Doran's Shield
             args.rawPhysical = args.rawPhysical + 5
         end,
+        [1083] = function(args) -- Cull
+            args.rawPhysical = args.rawPhysical + 7
+        end,
         [3508] = function(args) local source = args.source -- Essence Reaver
             if not source:has_buff("3508buff") then return end
             args.rawPhysical = args.rawPhysical + 0.4 *

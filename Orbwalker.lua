@@ -1097,7 +1097,7 @@ function Data:IsValid(unit)
 end
 
 function Data:Latency()
-    return game.ping / 2000 + 0.05
+    return game.latency / 2 + 0.05
 end
 
 --------------------

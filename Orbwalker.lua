@@ -1623,7 +1623,7 @@ function Orbwalker:ShouldWait(mod)
     local wait = self.waveMinions:Any(function(m)
         return m.clearPred - m.damage <= 0 end)
     if wait then self.waitTimer = game.game_time end
-    return game.game_time - self.waitTimer <= 0.25
+    return game.game_time - self.waitTimer <= 1
 end
 
 function Orbwalker:GetOrbwalkerTarget(mode)
@@ -1665,7 +1665,7 @@ function Orbwalker:GetOrbwalkerTarget(mode)
             if prioCannon == true and #cannons > 0 then
                 return cannons[1].gameObject end
             -- there is a minion with high aggro, wait for lasthit
-            if minions:All(function(m) return m.clearPred > 0 end)
+            if minions:All(function(m) return m.healthPred > 0 end)
                 and self.waveMinions:Except(minions):Any(function(m)
                 return m.clearPred <= 0 end) then return nil end
             -- last hit a minion
@@ -1744,7 +1744,7 @@ function Orbwalker:UpdateMinionData()
     local canAttack = self:CanAttack(0)
     local pos = myHero.path.server_pos
     local latency = self.data:Latency() - 0.05
-    local wait = self:GetAnimationTime() + 0.35
+    local wait = self:GetAnimationTime() + 0.5
     local speed = self.data:GetProjectileSpeed()
     local delay = menu:get_value(self.s_farm) * 0.001
     local windup = self:GetWindupTime() + latency * 0.5

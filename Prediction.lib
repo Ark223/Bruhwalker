@@ -1,0 +1,1596 @@
+
+--[[
+
+    Author: Ark223
+    Prediction library powered by BruhWalker
+    ________________________________________
+
+    prediction_input:
+    > source - the unit that the skillshot will be launched from [game_object/vec3]
+    > hitbox - indicates if the unit bounding radius should be included in calculations [boolean]
+    > speed - the skillshot speed in units per second [number]
+    > range - the skillshot range in units [number]
+    > delay - the skillshot initial delay before release [number]
+    > radius - the skillshot radius (for non-conic skillshots) [number]
+    > angle - the skillshot angle (for conic skillshots) [number]
+    > collision - determines the collision flags for the skillshot [table]:
+       ({"minion", "ally_hero", "enemy_hero", "wind_wall", "terrain_wall"})
+    > type - the skillshot type: ("linear", "circular", "conic") [string]
+
+    prediction_output:
+    > cast_pos - the skillshot cast position [vec3]
+    > pred_pos - the predicted unit position [vec3]
+    > hit_chance - the calculated skillshot hit chance [number]
+    > hit_count - the area of effect hit count [number]
+    > time_to_hit - the total skillshot arrival time [number]
+
+    hit_chance:
+    > -2 - impossible prediction, the unit is unpredictable
+    > -1 - the skillshot is colliding other units on the path
+    > 0 - the predicted position is out of the skillshot range
+    > (0.01 - 0.99) - the solution has been found for given input
+    > 1 - the unit is immobile or skillshot will land for sure
+    > 2 - the unit is dashing or blinking
+
+    attack_data (health prediction):
+    > processed - indicates if sent attack has been completed [boolean]
+    > timer - the start time of launched attack [number]
+    > source - the source which has launched the attack [game_object]
+    > target - the target which is going to take a damage [game_object]
+    > windup_time - the source attack windup time [number]
+    > animation_time - the source attack animation time [number]
+    > speed - the projectile speed of sent attack [number]
+    > damage - the predicted attack damage to target [number]
+
+    API:
+    > calc_auto_attack_damage(game_object source, game_object unit) [number]
+    > get_aoe_prediction(prediction_input input, game_object unit) [prediction_output]
+    > get_aoe_position(prediction_input input, table<game_object/vec3> units, game_object/vec3 star = nil) [{position, hit_count}]
+    > get_collision(prediction_input input, vec3 end_pos, game_object exclude = nil) [table<game_object/vec3>]
+    > get_fast_prediction(game_object/vec3 source, game_object unit, number speed, number delay) [vec3]
+    > get_health_prediction(game_object unit, number delta, number delay = 0) [number]
+    > get_lane_clear_health_prediction(game_object unit, number delta) [number]
+    > get_position_after(game_object unit, number delta, boolean skip_latency = false) [vec3]
+    > get_prediction(prediction_input input, game_object unit) [prediction_output]
+    > get_hero_aggro(game_object unit) [table<attack_data>]
+    > get_immobile_duration(game_object unit) [number]
+    > get_invulnerable_duration(game_object unit) [number]
+    > get_invisible_duration(game_object unit) [number]
+    > get_minion_aggro(game_object unit) [table<attack_data>]
+    > get_movement_speed(game_object unit) [number]
+    > get_turret_aggro(game_object unit) [table<attack_data>]
+    > get_waypoints(game_object unit) [table<vec3>]
+    > is_loaded() [boolean]
+    > set_collision_buffer(number buffer)
+    > set_internal_delay(number delay)
+
+--]]
+
+local Version = 1.29
+
+local function AutoUpdate()
+    local url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
+    local result = http:get(url .. "Prediction.version")
+    if result and result ~= "" and tonumber(result) > Version then
+        http:download_file(url .. "Prediction.lib", "Prediction.lib")
+        console:log("Prediction library has been updated successfully!")
+    end
+end
+
+local Class = function(...)
+    local cls = {}; cls.__index = cls
+    cls.__call = function(_, ...) return cls:New(...) end
+    function cls:New(...)
+        local instance = setmetatable({}, cls)
+        cls.__init(instance, ...)
+        return instance
+    end
+    return setmetatable(cls, {__call = cls.__call})
+end
+
+----------------
+-- Local data --
+
+local myHero = game.local_player
+
+local Blinks = {
+    ["Ezreal"] = {
+        ["EzrealE"] = {name = "Arcane Shift", range = 475, windup = 0.25}
+    },
+    ["FiddleSticks"] = {
+        ["FiddleSticksR"] = {name = "Crowstorm", range = 800, windup = 1.5}
+    },
+    ["Kassadin"] = {
+        ["Riftwalk"] = {name = "Riftwalk", range = 500, windup = 0.25}
+    },
+    ["Katarina"] = {
+        ["KatarinaEWrapper"] = {name = "Shunpo", range = 725, windup = 0.125}
+    },
+    ["Pyke"] = {
+        ["PykeR"] = {name = "Death from Below", range = 750, windup = 0.5}
+    },
+    ["Shaco"] = {
+        ["Deceive"] = {name = "Deceive", range = 400, windup = 0.25}
+    },
+    ["Viego"] = {
+        ["ViegoR"] = {name = "Heartbreaker", range = 500, windup = 0.5}
+    },
+    ["Zoe"] = {
+        ["ZoeR"] = {name = "Portal Jump", range = 575, windup = 0.25}
+    }
+}
+
+local PreDashes = {
+    ["Galio"] = {
+        ["GalioE"] = {name = "Justice Punch", windup = 0.4, offset = -250}
+    },
+    ["Shyvana"] = {
+        ["ShyvanaTransformCast"] = {name = "Dragon's Descent", windup = 0.25, offset = 0}
+    },
+    ["Tristana"] = {
+        ["TristanaW"] = {name = "Rocket Jump", windup = 0.25, offset = 0}
+    }
+}
+
+local ChanneledSpells = {
+    ["Caitlyn"] = {id = "caitlynheadshot", name = "Ace in the Hole", buff = true},
+    ["FiddleSticks"] = {id = "Crowstorm", name = "Crowstorm", buff = true},
+    ["Janna"] = {id = "ReapTheWhirlwind", name = "Monsoon", buff = true},
+    ["Jhin"] = {id = "JhinRShot", name = "Curtain Call", buff = false},
+    ["Karthus"] = {id = "karthusfallenonecastsound", name = "Requiem", buff = true},
+    ["Katarina"] = {id = "katarinarsound", name = "Death Lotus", buff = true},
+    ["Lucian"] = {id = "LucianR", name = "The Culling", buff = true},
+    ["Malzahar"] = {id = "alzaharnethergraspsound", name = "Nether Grasp", buff = true},
+    ["MissFortune"] = {id = "missfortunebulletsound", name = "Bullet Time", buff = true},
+    ["Nunu"] = {id = "NunuR_Recast", name = "Absolute Zero", buff = false},
+    ["TwistedFate"] = {id = "Gate", name = "Gate", buff = true},
+    ["Velkoz"] = {id = "VelkozR", name = "Life Form Disintegration Ray", buff = true},
+    ["Warwick"] = {id = "infiniteduresssound", name = "Infinite Duress", buff = true},
+    ["Xerath"] = {id = "XerathLocusOfPower2", name = "Rite of the Arcane", buff = true}
+}
+
+local BuffType = {
+    Internal = 0, Aura = 1, CombatEnchancer = 2, CombatDehancer = 3, SpellShield = 4,
+    Stun = 5, Invisibility = 6, Silence = 7, Taunt = 8, Berserk = 9, Polymorph = 10,
+    Slow = 11, Snare = 12, Damage = 13, Heal = 14, Haste = 15, SpellImmunity = 16,
+    PhysicalImmunity = 17, Invulnerability = 18, AttackSpeedSlow = 19, NearSight = 20,
+    Currency = 21, Fear = 22, Charm = 23, Poison = 24, Suppression = 25, Blind = 26,
+    Counter = 27, Shred = 28, Flee = 29, Knockup = 30, Knockback = 31, Disarm = 32,
+    Grounded = 33, Drowsy = 34, Asleep = 35, Obscured = 36, Clickproof = 37, UnKillable = 38
+}
+
+local CrowdControls = {
+    [BuffType.Charm] = true, [BuffType.Fear] = true,
+    [BuffType.Flee] = true, [BuffType.Knockup] = true,
+    [BuffType.Snare] = true, [BuffType.Stun] = true,
+    [BuffType.Suppression] = true, [BuffType.Taunt] = true
+}
+
+local MinionFilter = {
+    ["HA_ChaosMinionMelee"] = math.huge, ["HA_ChaosMinionRanged"] = 650, ["HA_ChaosMinionSiege"] = 1200,
+    ["HA_ChaosMinionSuper"] = math.huge, ["HA_OrderMinionMelee"] = math.huge, ["HA_OrderMinionRanged"] = 650,
+    ["HA_OrderMinionSiege"] = 1200, ["HA_OrderMinionSuper"] = math.huge, ["SRU_Baron"] = 0, ["SRU_Blue"] = 0,
+    ["Sru_Crab"] = 0, ["SRU_Dragon_Air"] = 0, ["SRU_Dragon_Chemtech"] = 0, ["SRU_Dragon_Earth"] = 0,
+    ["SRU_Dragon_Elder"] = 0, ["SRU_Dragon_Fire"] = 0, ["SRU_Dragon_Hextech"] = 0, ["SRU_Dragon_Water"] = 0,
+    ["SRU_ChaosMinionMelee"] = math.huge, ["SRU_ChaosMinionRanged"] = 650, ["SRU_ChaosMinionSiege"] = 1200,
+    ["SRU_ChaosMinionSuper"] = math.huge, ["SRU_Gromp"] = 0, ["SRU_Krug"] = true, ["SRU_KrugMini"] = true,
+    ["SRU_KrugMiniMini"] = true, ["SRU_Murkwolf"] = 0, ["SRU_MurkwolfMini"] = 0,
+    ["SRU_OrderMinionMelee"] = math.huge, ["SRU_OrderMinionRanged"] = 650, ["SRU_OrderMinionSiege"] = 1200,
+    ["SRU_OrderMinionSuper"] = math.huge, ["SRU_Razorbeak"] = 0, ["SRU_RazorbeakMini"] = 0, ["SRU_Red"] = 0,
+    ["SRU_RiftHerald"] = 0, ["AnnieTibbers"] = 0, ["IvernMinion"] = 0, ["YorickWGhoul"] = 0,
+    ["YorickGhoulMelee"] = 0, ["YorickBigGhoul"] = 0, ["HeimerTYellow"] = 0, ["HeimerTBlue"] = 0,
+    ["ZyraThornPlant"] = 0, ["ZyraGraspingPlant"] = 0, ["ShacoBox"] = 0, ["MalzaharVoidling"] = 0,
+    ["KalistaSpawn"] = 0, ["EliseSpiderling"] = 0
+}
+
+-- --------------------------------
+-- Language INtegrated Query (LINQ)
+
+local function ParseFunc(func)
+    if func == nil then return function(x) return x end end
+    if type(func) == "function" then return func end
+    local index = string.find(func, "=>")
+    local arg = string.sub(func, 1, index - 1)
+    local func = string.sub(func, index + 2, #func)
+    return load(string.format("return function"
+        .. " %s return %s end", arg, func))()
+end
+----------------------------------------------------------------------------------------
+
+local function Linq(tab)
+    return setmetatable(tab or {}, {__index = table})
+end
+----------------------------------------------------------------------------------------
+
+function table.Aggregate(source, func, seed)
+    local result = seed or 0
+    local func = ParseFunc(func)
+    for index, value in ipairs(source) do
+        result = func(result, value)
+    end
+    return result
+end
+----------------------------------------------------------------------------------------
+
+function table.All(source, func)
+    local func = ParseFunc(func)
+    for index, value in ipairs(source) do
+        if not func(value, index) then
+            return false
+        end
+    end
+    return true
+end
+----------------------------------------------------------------------------------------
+
+function table.Any(source, func)
+    local func = ParseFunc(func)
+    for index, value in ipairs(source) do
+        if func(value, index) then
+            return true
+        end
+    end
+    return false
+end
+----------------------------------------------------------------------------------------
+
+function table.Average(source, func)
+    local result, count = 0, 0
+    local func = ParseFunc(func)
+    for _, value in ipairs(source) do
+        local temp = func(value)
+        if type(temp) == "number" then
+            result = result + temp
+            count = count + 1
+        end
+    end
+    return count == 0 and 0 or result / count
+end
+----------------------------------------------------------------------------------------
+
+function table.Concat(first, second)
+    local result, index = Linq(), 0
+    for _, value in ipairs(first) do
+        index = index + 1
+        result[index] = value
+    end
+    for _, value in ipairs(second) do
+        index = index + 1
+        result[index] = value
+    end
+    return result
+end
+----------------------------------------------------------------------------------------
+
+function table.ForEach(source, func)
+    for index, value in pairs(source) do
+        func(value, index)
+    end
+end
+----------------------------------------------------------------------------------------
+
+function table.RemoveWhere(source, func)
+    local size = #source
+    local func = ParseFunc(func)
+    for index = size, 1, -1 do
+        local value = source[index]
+        if func(value, index) then
+            source:remove(index)
+        end
+    end
+    return size ~= #source
+end
+----------------------------------------------------------------------------------------
+
+function table.Select(source, func)
+    local result = Linq()
+    local func = ParseFunc(func)
+    for index, value in ipairs(source) do
+        result[index] = func(value, index)
+    end
+    return result
+end
+----------------------------------------------------------------------------------------
+
+function table.Where(source, func)
+    local result, iteration = Linq(), 0
+    local func = ParseFunc(func)
+    for index, value in ipairs(source) do
+        if func(value, index) then
+            iteration = iteration + 1
+            result[iteration] = value
+        end
+    end
+    return result
+end
+
+-----------------
+-- Point class --
+
+local function IsPoint(p)
+    return p and p.x and type(p.x) == "number"
+            and p.y and type(p.y) == "number"
+            and p.type and p.type == "Point"
+end
+-----------------------------------------------------------------------------------------------
+
+local function IsUnit(p)
+    return p ~= nil and type(p) ~= "number" and (p.path
+        and p.path.server_pos ~= nil or p.origin ~= nil)
+end
+-----------------------------------------------------------------------------------------------
+
+local function Round(v)
+    return floor(v + 0.5) -- always positive number
+end
+-----------------------------------------------------------------------------------------------
+
+local Point = Class()
+
+function Point:__init(x, y)
+    self.type = "Point"
+    if x and IsUnit(x) then
+        local p = x.path ~= nil and
+            x.path.server_pos or x.origin
+        self.x, self.y = p.x, p.z or p.y
+    elseif x and y then
+        self.x, self.y = x, y
+    elseif x and not y then
+        self.x, self.y = x.x, x.z or x.y
+    else
+        self.x, self.y = 0, 0
+    end
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:__tostring()
+    return string.format("%d %d", self.x, self.y)
+end
+----------------------------------------------------------------------------------------
+
+function Point:__eq(p)
+    return math.abs(self.x - p.x) < 1
+        and math.abs(self.y - p.y) < 1
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:__add(p)
+    return Point:New(self.x + p.x, self.y + p.y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:__sub(p)
+    return Point:New(self.x - p.x, self.y - p.y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point.__mul(a, b)
+    if type(a) == "number" and IsPoint(b) then
+        return Point:New(b.x * a, b.y * a)
+    elseif type(b) == "number" and IsPoint(a) then
+        return Point:New(a.x * b, a.y * b)
+    end
+    error("Multiplication error!")
+end
+-----------------------------------------------------------------------------------------------
+
+function Point.__div(a, b)
+    if type(a) == "number" and IsPoint(b) then
+        return Point:New(a / b.x, a / b.y)
+    elseif type(b) == "number" and IsPoint(a) then
+        return Point:New(a.x / b, a.y / b)
+    end
+    error("Division error!")
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:__tostring()
+    return string.format("(%f, %f)", self.x, self.y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:AngleBetween(p1, p2)
+    local angle = math.deg(
+        math.atan(p2.y - self.y, p2.x - self.x) -
+        math.atan(p1.y - self.y, p1.x - self.x))
+    if angle < 0 then angle = angle + 360 end
+    return angle > 180 and 360 - angle or angle
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Append(p, dist)
+    if dist == 0 then return p:Clone() end
+    return p + (p - self):Normalize() * dist
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Clone()
+    return Point:New(self.x, self.y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:ClosestOnSegment(s1, s2)
+    local ap, ab = self - s1, s2 - s1
+    local t = ap:DotProduct(ab) / ab:LengthSquared()
+    return t < 0 and s1 or t > 1 and s2 or (s1 + ab * t)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:CrossProduct(p)
+    return self.x * p.y - self.y * p.x
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:DistanceSquared(p)
+    local dx, dy = p.x - self.x, p.y - self.y
+    return dx * dx + dy * dy
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Distance(p)
+    return math.sqrt(self:DistanceSquared(p))
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:DotProduct(p)
+    return self.x * p.x + self.y * p.y
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Extend(p, dist)
+    if dist == 0 then return self:Clone() end
+    return self + (p - self):Normalize() * dist
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:InPolygon(poly)
+    local size, result = #poly, false
+    for i = 1, size do
+        local a, b = poly[i], poly[i % size + 1]
+        if a.y <= self.y and b.y >= self.y or
+            b.y <= self.y and a.y >= self.y then
+            local ap, ab = self - a, b - a 
+            if a.x + ap.y / ab.y * ab.x <= self.x then
+                result = not result
+            end
+        end
+    end
+    return result
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Intersection(a2, b1, b2)
+    local a, b = a2 - self, b2 - b1
+    local axb = a:CrossProduct(b)
+    if axb == 0 then return nil end
+    local bsa = b1 - self
+    local t1 = bsa:CrossProduct(b) / axb
+    local t2 = bsa:CrossProduct(a) / axb
+    return t1 >= 0 and t1 <= 1 and t2 >= 0
+        and t2 <= 1 and self + a * t1 or nil
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:IsZero()
+    return self.x == 0 and self.y == 0
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:LengthSquared(p)
+    local p = p and p:Clone() or self
+    return p.x * p.x + p.y * p.y
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Length(p)
+    return math.sqrt(self:LengthSquared(p))
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Negate()
+    return Point:New(-self.x, -self.y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Normalize()
+    local len = self:Length()
+    if len == 0 then return Point:New() end
+    return Point:New(self.x / len, self.y / len)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Perpendicular()
+    return Point:New(-self.y, self.x)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Perpendicular2()
+    return Point:New(self.y, -self.x)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:Rotate(phi, p)
+    local c = math.cos(phi)
+    local s = math.sin(phi)
+    local p = p or Point:New()
+    local d = self - p
+    local x = c * d.x - s * d.y + p.x
+    local y = s * d.x + c * d.y + p.y
+    return Point:New(x, y)
+end
+-----------------------------------------------------------------------------------------------
+
+function Point:To3D(y)
+    local y = y or myHero.origin.y
+    return vec3.new(self.x, y, self.y)
+end
+
+--------------------------------
+-- Prediction input structure --
+
+local PredictionInput = Class()
+
+function PredictionInput:__init(data)
+    self.source = data.source or nil
+    self.speed = data.speed or math.huge
+    self.range = data.range or 25000
+    self.delay = data.delay or 0.25
+    self.radius = data.radius or 1
+    self.angle = data.angle or 0
+    self.hitbox = data.hitbox or false
+    self.collision = data.collision or {}
+    self.type = data.type or "linear"
+end
+
+---------------------------------
+-- Prediction output structure --
+
+local PredictionOutput = Class()
+
+function PredictionOutput:__init()
+    self.cast_pos = nil
+    self.pred_pos = nil
+    self.hit_chance = -2
+    self.hit_count = 0
+    self.time_to_hit = 0
+end
+
+-------------------
+-- Prediction class
+
+local Pred = Class()
+
+function Pred:__init(delay)
+    self.allyMinions = Linq()
+    self.attacks = Linq()
+    self.data = Linq()
+    self.enemyMinions = Linq()
+    self.futureAttacks = Linq()
+    self.windwalls = Linq()
+    self.targets = {}
+    self.internalDelay = delay or 0.0167
+    self.units = Linq(game.players):Where(
+        function(u) return u.object_id ~= myHero.object_id end)
+    self.enemies = self.units:Where(function(u) return u.is_enemy end)
+    for _, unit in ipairs(self.units) do self:ResetData(unit) end
+    self.menu = menu:add_category("Prediction v" .. tostring(Version))
+    self.drawPoints = menu:add_checkbox("Draw Waypoints", self.menu, 0)
+    self.options = menu:add_subcategory("Measure Options", self.menu)
+    self.buffer = menu:add_slider("Collision Buffer", self.menu, 0, 50, 30)
+    self.drawSpell = menu:add_checkbox("Draw Skillshot", self.options, 0)
+    self.dummyBox = menu:add_checkbox("Draw Dummy Hitbox", self.options, 1)
+    self.fixedRange = menu:add_checkbox("Use Fixed Range", self.options, 1)
+    self.range = menu:add_slider("Range", self.options, 0, 1500, 1150)
+    self.radius = menu:add_slider("Radius", self.options, 0, 500, 60)
+    self.angle = menu:add_slider("Angle", self.options, 0, 180, 50)
+    self.type = menu:add_combobox("Type", self.options, {"Line", "Circle", "Cone"}, 0)
+    client:set_event_callback("on_tick", function(...) self:OnTick(...) end)
+    client:set_event_callback("on_draw", function(...) self:OnDraw(...) end)
+    client:set_event_callback("on_new_path", function(...) self:OnNewPath(...) end)
+    client:set_event_callback("on_process_spell", function(...) self:OnProcessSpell(...) end)
+    client:set_event_callback("on_stop_cast", function(...) self:OnStopCast(...) end)
+    self.loaded = true
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:CutPath(path, distance)
+    if distance < 0 then return path end
+    local count, result = #path, Linq()
+    local distance = distance
+    for i = 1, count - 1 do
+        local dist = path[i]:Distance(path[i + 1])
+        if dist > distance then
+            result[#result + 1] = path[i]
+                :Extend(path[i + 1], distance)
+            for j = i + 1, count do
+                result[#result + 1] = path[j]
+            end break
+        end
+        distance = distance - dist
+    end
+    return #result > 0 and result or {path[count]}
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:CalcAutoAttackDamage(source, unit)
+    local amount = source.total_attack_damage
+    if source.champ_name == "Kalista" then
+        amount = amount * 0.9
+    elseif source.champ_name == "Graves" then
+        local percent = 0.68235 + source.level * 0.01765
+        amount = amount * percent
+    end
+    local armor = unit.armor
+    if source.is_turret then
+        local max = unit.max_health
+        local name = unit.champ_name
+        if name:find("Siege") then
+            local percent = name:find("1") and 0.14
+                or name:find("2") and 0.11 or 0.08
+            return math.floor(max * percent)
+        elseif name:find("Ranged") then
+            return math.floor(max * 0.7)
+        elseif name:find("Melee") then
+            return math.floor(max * 0.45)
+        elseif name:find("Super") then
+            return math.floor(max * 0.05)
+        end
+    elseif armor < 0 then
+        local reduction = 2 - 100 / (100 - armor)
+        return math.floor(amount * reduction)
+    end
+    local bonusArmor = unit.bonus_armor
+    local armorPen = source.percent_armor_penetration
+    local bonusPen = source.percent_bonus_armor_penetration
+    local lethality = source.lethality * (0.6 + 0.4 * source.level / 18)
+    if source.is_minion then armorPen, bonusPen, lethality = 1, 1, 0 end
+    if source.is_turret then armorPen, bonusPen, lethality = 0.7, 1, 0 end
+    local res = armor * armorPen - (bonusArmor * (1 - bonusPen)) - lethality
+    return math.floor(amount * (res < 0 and 1 or 100 / (100 + res)))
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:DistanceToCollision(p1, p2, pos, hitbox, buffer)
+    local dir, buffer = (p2 - p1):Normalize(), buffer or 0
+    local p1, p2 = p1 - dir * buffer, p2 + dir * buffer
+    local perp = dir:Perpendicular() * (hitbox + buffer)
+    local polygon = {p1 + perp, p1 - perp, p2 - perp, p2 + perp}
+    if pos:InPolygon(polygon) then return 0.0 end
+    local distance = math.huge
+    for i = 1, 4 do
+        local a, b = polygon[i], polygon[i % 4 + 1]
+        local pt = pos:ClosestOnSegment(a, b)
+        local dist = pos:DistanceSquared(pt)
+        if dist < distance then distance = dist end
+    end
+    return distance
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:DrawCircle(pos, radius, color)
+    local pos = pos:To3D(myHero.origin.y)
+    local c = color or {r = 255, g = 255, b = 255, a = 240}
+    renderer:draw_circle(pos.x, pos.y, pos.z, radius, c.r, c.g, c.b, c.a)
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:DrawPath(path)
+    local size = #path
+    if size < 2 then return end
+    local y = myHero.origin.y
+    for i = 1, size - 1 do
+        local p1, p2 = path[i], path[i + 1]
+        local a = game:world_to_screen_2(p1.x, y, p1.y)
+        local b = game:world_to_screen_2(p2.x, y, p2.y)
+        renderer:draw_line(a.x, a.y, b.x, b.y, 1, 255, 255, 255, 192)
+    end
+    renderer:draw_circle(path[#path].x, y, path[#path].y, 25, 255, 255, 0, 192)
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:DrawPolygon(polygon)
+    local size = #polygon
+    if size < 3 then return end
+    local y = myHero.origin.y
+    for i = 1, size do
+        local p1, p2 = polygon[i], polygon[i % size + 1]
+        local a = game:world_to_screen_2(p1.x, y, p1.y)
+        local b = game:world_to_screen_2(p2.x, y, p2.y)
+        renderer:draw_line(a.x, a.y, b.x, b.y, 1, 255, 255, 255, 240)
+    end
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:GetMovementSpeed(unit)
+    local path = unit.path
+    return path and path.is_dashing and
+        path.dash_speed or unit.move_speed
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:GetPathIndex(path, pos)
+    if #path <= 2 then return 2 end
+    local result = {distance = math.huge,
+        index = 0, point = Point:New()}
+    for i = 1, #path - 1 do
+        local a, b = path[i], path[i + 1]
+        local pt = pos:ClosestOnSegment(a, b)
+        local dist = pos:DistanceSquared(pt)
+        if dist < result.distance then
+            result = {distance = dist,
+                index = i + 1, point = pt}
+        end
+    end
+    pos = result.point
+    return result.index
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:GetWaypoints(unit)
+    local result = Linq()
+    local data = self.data[unit.object_id]
+    result[1] = data and data.serverPos
+        or Point:New(unit.path.server_pos)
+    local path = data and data.path or
+        Linq(unit.path.waypoints):Select(
+        function(w) return Point:New(w.x, w.z) end)
+    local index = self:GetPathIndex(path, result[1])
+    for i = index, #path do result[#result + 1] = path[i] end
+    if data and data.miaTimer > 0 then
+        local speed = self:GetMovementSpeed(unit)
+        result = self:CutPath(result, speed *
+            (game.game_time - data.miaTimer))
+    end
+    return result
+end
+-----------------------------------------------------------------------------------------------
+
+function Pred:Interception(startPos, endPos, source, speed, mspeed, delay)
+    -- dynamic circle-circle collision:
+    -- https://stackoverflow.com/questions/2248876/2d-game-fire-at-a-
+    -- moving-target-by-predicting-intersection-of-projectile-and-u
+    local dir = endPos - startPos
+    local magn = dir:Length()
+    local vel = dir * speed / magn
+    dir = startPos - source
+    local a = vel:LengthSquared() - mspeed * mspeed
+    local b = 2 * vel:DotProduct(dir)
+    local c = dir:LengthSquared()
+    local delta = b * b - 4 * a * c
+    if delta >= 0 then
+        local delta, t = math.sqrt(delta), 0
+        local t1 = (-b + delta) / (2 * a)
+        local t2 = (-b - delta) / (2 * a)
+        if t2 >= delay then
+            t = t1 >= delay and math.min(
+                t1, t2) or math.max(t1, t2)
+        end
+        return t, startPos + vel * t
+    end
+    return 0, nil
+end
+----------------------------------------------------------------------------------------
+
+function Pred:IsInserted(unit)
+    return self.attacks:Any(function(a)
+        local delay = a.animation_time - 0.05
+        return unit.object_id == a.network_id
+            and game.game_time - a.timer < delay
+    end)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:IsValid(unit)
+    return unit and unit.is_valid and
+        unit.is_visible and unit.is_alive
+end
+----------------------------------------------------------------------------------------
+
+function Pred:Latency()
+    return game.ping * 0.001
+end
+----------------------------------------------------------------------------------------
+
+function Pred:ResetData(unit)
+    self.data[unit.object_id] = {
+        blink = {}, -- the stored data of unit's blink usage
+        dashing = false, -- indicates if the unit is dashing
+        dashSpeed = 0, -- the unit last dashing speed
+        castEndTimer = 0, -- the last AA or spell cast timer
+        miaTimer = -1, -- the last invisibility timer
+        path = Linq(), -- the unit's path
+        pathTimer = 0, -- the last path change timer
+        preDash = {}, -- the data of unit's pre-dash state
+        serverPos = nil, -- the unit's server position
+        waypoints = Linq() -- the unit's waypoints
+    }
+end
+
+------------
+-- Events --
+
+function Pred:OnTick()
+    -- update data for all heroes
+    for _, unit in ipairs(self.units) do
+        local data = self.data[unit.object_id]
+        if self:IsValid(unit) then data.miaTimer = 0
+            data.path = Linq(unit.path.waypoints):Select(
+                function(w) return Point:New(w.x, w.z) end)
+            data.serverPos = Point:New(unit.path.server_pos)
+        elseif data.miaTimer == 0 then data.miaTimer =
+            game.game_time - self.internalDelay end
+        if unit.is_recalling then data.path = Linq() end
+        if data.blink.pos and data.blink.endTime <
+            game.game_time then data.blink = {} end
+        if data.preDash.pos and data.preDash.endTime <
+            game.game_time then data.preDash = {} end
+        data.waypoints = self:GetWaypoints(unit)
+        if data.dashing and #data.waypoints < 2
+            then data.dashing = false end
+    end
+
+    -- mark completed attacks as processed
+    self.attacks:ForEach(function(a)
+        if a.processed == true then return end
+        local target = Point:New(a.target.origin)
+        local dist = a.start_pos:Distance(target)
+        if not self:IsValid(a.source)
+            or not self:IsValid(a.target) or
+            a.timer + dist / a.speed + a.windup_time <
+            game.game_time then a.processed = true end
+    end)
+
+    -- remove old processed attacks and windwalls
+    self.attacks:RemoveWhere(function(a)
+        return a.processed and game.game_time -
+        a.timer + 0.1 > a.animation_time end)
+    self.windwalls:ForEach(function(w)
+        return game.game_time - w.timer > 4 end)
+    for networkId, data in pairs(self.targets) do
+        if game.game_time - data.timer > 3 or
+            not self:IsValid(data.target) then
+            self.targets[networkId] = nil
+        end
+    end
+
+    -- collect candidates for future minion attacks
+    local heroPos = Point:New(myHero.origin)
+    self.allyMinions = Linq(game.minions):Where(
+        function(m) return self:IsValid(m) and not m.is_enemy
+        and not self:IsInserted(m) and m.champ_name:find("Minion")
+        and heroPos:Distance(Point:New(m.origin)) <= 1500 end)
+    self.enemyMinions = Linq(game.minions):Where(
+        function(m) return self:IsValid(m) == true and
+        m.is_enemy and m.champ_name:find("Minion") and
+        heroPos:Distance(Point:New(m.origin)) <= 1500 end)
+
+    -- predict future minion attacks for lane clear
+    self.futureAttacks = Linq()
+    if #self.enemyMinions == 0 then return end
+    self.allyMinions:ForEach(function(ally)
+        if self.attacks:Any(
+            function(a) return a.network_id ==
+            ally.object_id end) then return end
+        local pa = Point:New(ally.path.server_pos)
+        local data = self.targets[ally.object_id]
+        local targets = data ~= nil and
+            {data.target} or self.enemyMinions
+        for _, target in ipairs(targets) do
+            local pe = Point:New(target.path.server_pos)
+            local dist = math.max(pa:Distance(pe) - ally.attack_range
+                - ally.bounding_radius - target.bounding_radius, 0)
+            local arrival = dist / ally.move_speed - self.internalDelay
+            if arrival > 3 then goto continue end
+            self.futureAttacks[#self.futureAttacks + 1] = {
+                processed = true,
+                timer = game.game_time + arrival,
+                source = ally, target = target,
+                start_pos = pa:Extend(pe, dist),
+                network_id = ally.object_id,
+                windup_time = ally.attack_cast_delay,
+                animation_time = ally.attack_delay,
+                speed = MinionFilter[ally.champ_name],
+                damage = self:CalcAutoAttackDamage(ally, target)
+            } ::continue::
+        end
+    end)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:OnDraw()
+    for _, unit in ipairs(self.enemies:Where("(u) => u.is_alive")) do
+        if unit.is_visible and menu:get_value(self.dummyBox) == 1
+            and unit.champ_name:find("Practice") ~= nil then
+            local color = {r = 255, g = 255, b = 0, a = 200}
+            local pos = Point:New(unit.origin)
+            self:DrawCircle(pos, 65, color)
+            self:DrawCircle(pos, 3, color)
+        elseif menu:get_value(self.drawPoints) == 1
+            and self.data[unit.object_id] ~= nil then
+            self:DrawPath(self.data[unit.object_id].waypoints)
+        end
+    end
+    if menu:get_value(self.drawSpell) == 0 then return end
+    local type = menu:get_value(self.type)
+    local range = menu:get_value(self.range)
+    local radius = menu:get_value(self.radius)
+    local mousePos = Point:New(game.mouse_pos)
+    local p1 = Point:New(myHero.origin)
+    local p2 = menu:get_value(self.fixedRange) == 1
+        and p1:Extend(mousePos, range) or mousePos
+    if type == 0 then
+        local dir = (p2 - p1):Normalize()
+        local perp = dir:Perpendicular() * radius
+        self:DrawPolygon({p1 + perp, p1 -
+            perp, p2 - perp, p2 + perp})
+    elseif type == 1 then
+        self:DrawCircle(p2, radius)
+    elseif type == 2 then
+        local angle = menu:get_value(self.angle)
+        local angle = math.rad(angle)
+        local length = p1:Distance(p2) * angle
+        if length < 35 then return end
+        local steps = math.floor(length / 50)
+        local phi, polygon = -angle * 0.5, {}
+        for i = 1, steps + 1 do
+            local pos = p2:Rotate(phi, p1)
+            polygon[#polygon + 1] = pos
+            phi = i == steps and angle *
+                0.5 or phi + angle / steps
+        end
+        polygon[#polygon + 1] = p1
+        self:DrawPolygon(polygon)
+    end
+end
+----------------------------------------------------------------------------------------
+
+function Pred:OnNewPath(unit)
+    if unit.team == myHero.team or not
+        unit.is_hero then return end
+    local data = self.data[unit.object_id]
+    if not data then return end
+    data.dashing = unit.path.is_dashing
+    data.dashSpeed = unit.path.dash_speed
+    data.pathTimer = game.game_time
+end
+----------------------------------------------------------------------------------------
+
+function Pred:OnProcessSpell(unit, args)
+    if not unit.is_valid or not unit.is_alive then return end
+    local charName, name = unit.champ_name, args.spell_name
+    if unit.is_hero and self.data[unit.object_id]
+        and unit.object_id ~= myHero.object_id then
+        local data = self.data[unit.object_id]
+        if args.cast_delay and args.cast_delay > 0 then
+            data.castEndTimer = game.game_time + args.cast_delay
+            data.pathTimer = game.game_time
+        end
+        if Blinks[charName] and Blinks[charName][name] then
+            local blink = Blinks[charName][name]
+            local startPos = Point:New(args.start_pos)
+            local endPos = Point:New(args.end_pos)
+            endPos = startPos:Extend(endPos, math.min(
+                blink.range, startPos:Distance(endPos)))
+            data.blink = {pos = endPos, endTime =
+                game.game_time + blink.windup}
+        elseif PreDashes[charName] and PreDashes[charName][name] then
+            local preDash = PreDashes[charName][name]
+            local startPos = Point:New(args.start_pos)
+            local endPos = Point:New(args.end_pos)
+            local dir = (endPos - startPos):Normalize()
+            local pos = startPos + dir * preDash.offset
+            data.preDash = {pos = pos, endTime =
+                game.game_time + preDash.windup}
+        elseif name == "YasuoW" then
+            local startPos = Point:New(args.start_pos)
+            local endPos = Point:New(args.end_pos)
+            local dir = (endPos - startPos):Normalize()
+            local pos = startPos + dir * 350
+            local perp = dir:Perpendicular()
+            local lvl = unit:get_spell_slot(1).level
+            local width = 300 + lvl * 50
+            self.windwalls[#self.windwalls + 1] = {
+                cornerA = pos - perp * width,
+                cornerB = pos + perp * width,
+                timer = game.game_time
+            }
+        end
+    elseif args.target and args.is_autoattack
+        and unit.object_id ~= myHero.object_id then
+        local target = args.target
+        if not self:IsValid(target) or not
+            target.is_minion or unit.team ~= myHero.team
+            or target.team == myHero.team then return end
+        local data = MinionFilter[target.champ_name]
+        if not (data and data ~= 0 or unit.is_hero
+            or unit.is_turret) then return end
+        local heroPos = Point:New(myHero.origin)
+        local targetPos = Point:New(target.origin)
+        local distance = heroPos:Distance(targetPos)
+        if distance > 1500 then return end
+        local attack = unit:get_basic_attack_data()
+        local speed = attack.missile_speed or nil
+        self.targets[unit.object_id] = {timer =
+            game.game_time, target = target}
+        self.attacks[#self.attacks + 1] = {
+            processed = false,
+            timer = game.game_time,
+            source = unit, target = target,
+            start_pos = Point:New(unit.origin),
+            network_id = unit.object_id,
+            windup_time = unit.attack_cast_delay +
+                (unit.is_turret and 0.07 or 0),
+            animation_time = unit.attack_delay -
+                (unit.is_turret and 0.07 or 0),
+            speed = MinionFilter[charName] ~= nil
+                and MinionFilter[charName] ~= 0
+                and (MinionFilter[charName]) or
+                (not unit.is_melee and speed ~= nil
+                and speed > 0 and speed or math.huge),
+            damage = self:CalcAutoAttackDamage(unit, target)
+        }
+    end
+end
+----------------------------------------------------------------------------------------
+
+function Pred:OnStopCast(unit, args)
+    local heroPos = Point:New(myHero.origin)
+    local source = Point:New(unit.origin)
+    if unit.team ~= myHero.team or
+        source:Distance(heroPos) > 1500 or
+        unit.object_id == myHero.object_id
+        or not args.stop_animation or not
+        args.destroy_missile then return end
+    self.attacks:RemoveWhere(function(a) return
+        unit.object_id == a.network_id end)
+end
+
+------------------------
+-- Prediction methods --
+
+function Pred:GetAOEPosition(input, units, star)
+    -- extract points and hitboxes from input table
+    local size, points, hitboxes = #units, units, {}
+    if star then star = Point:New(star) end
+    if size > 0 and IsUnit(units[1]) then
+        points = units:Select(function(p) return Point:New(p) end)
+        hitboxes = units:Select("(p) => p.bounding_radius")
+    elseif size > 0 and not IsPoint(units[1]) then
+        points = units:Select(function(p) return Point:New(p) end)
+    end
+
+    -- return results if size of table is <= 1
+    local empty = {position = nil, hit_count = 0}
+    if size == 0 then return empty end
+    local source = Point:New(input.source)
+    if size == 1 then return input.range >=
+        source:Distance(points[1]) and {position =
+        points[1]:To3D(), hit_count = 1} or empty end
+    local count, topvalue, index = 0, 0, 0
+
+    -- calculate average position from given points
+    -- and bring it closer to fit in skillshot range
+    local average_pos_x = points:Average("(u) => u.x")
+    local average_pos_y = points:Average("(u) => u.y")
+    local pos = Point:New(average_pos_x, average_pos_y)
+    local dist = math.min(input.range, source:Distance(pos))
+    pos = source:Extend(pos, dist)
+
+    -- calculate hit count, remove the farthest point and try again...
+    for i, point in ipairs(points) do
+        local hitbox = (input.radius or 0) +
+            (input.hitbox and hitboxes[i] or 0)
+        local value = pos:DistanceSquared(point)
+        if input.type == "linear" then
+            local endPos = source:Extend(pos, input.range)
+            local colDist = self:DistanceToCollision(
+                source, endPos, point, hitbox, 0) - 1
+            value = hitbox * hitbox + colDist
+        elseif input.type == "conic" then
+            value = source:AngleBetween(pos, point)
+            dist = source:DistanceSquared(point)
+        end
+        if input.type == "conic" and dist <=
+            input.range * input.range and value <=
+            input.angle * 0.5 or input.type ~= "conic" and
+            value <= hitbox * hitbox then count = count + 1
+        elseif star and point == star then goto continue end
+        if value > topvalue then topvalue, index = value, i end
+        ::continue::
+    end
+
+    -- return results or continue...
+    if count ~= size then
+        if index == 0 then return empty end
+        table.remove(units, index)
+        return self:GetAOEPosition(input, units, star)
+    end
+    return {position = pos:To3D(), hit_count = count}
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetCollision(input, endPos, exclude)
+    local source = Point:New(input.source)
+    local endPos, result = Point:New(endPos), {}
+    for _, flag in ipairs(input.collision) do
+        if flag == "minion" or flag:find("hero") then
+            -- gather valid collision candidates
+            local units = Linq(flag == "minion"
+                and game.minions or game.players):Where(
+                function(u) local pos = Point:New(u.origin)
+                return self:IsValid(u) and myHero.object_id ~=
+                    u.object_id and u.max_health > 5 and (exclude and
+                    exclude.object_id ~= u.object_id or not exclude)
+                    and source:Distance(pos) < input.range + 1000
+            end)
+            if flag == "minion" then
+                units = units:Where(function(u) return u.is_enemy
+                    and MinionFilter[u.champ_name] ~= nil end)
+            elseif flag == "enemy_hero" then
+                units = units:Where(function(u) return u.is_enemy end)
+            elseif flag == "ally_hero" then
+                units = units:Where(function(u) return not u.is_enemy end)
+            end
+            for _, unit in ipairs(units) do
+                local output = self:GetFastPrediction(
+                    input.source, unit, input.speed, input.delay)
+                local pos = output and Point:New(output) or nil
+                if not pos or pos:IsZero() then goto continue end
+                local hitbox = input.radius + unit.bounding_radius
+                local buffer = menu:get_value(self.buffer) or 30
+                local dist = self:DistanceToCollision(
+                    source, endPos, pos, hitbox, buffer)
+                if dist == 0 then result[#result + 1] = unit end
+                ::continue::
+            end
+        elseif flag == "wind_wall" then
+            for _, data in ipairs(self.windwalls) do
+                local pos = source:Intersection(
+                    endPos, data.cornerA, data.cornerB)
+                if pos and IsPoint(pos) then
+                    local dist = source:Distance(pos)
+                    local t = input.delay + dist / input.speed
+                    if game.game_time + t <= data.timer + 4.1 then
+                        result[#result + 1] = pos:To3D()
+                    end
+                end
+            end
+        elseif flag == "terrain_wall" then
+            local dir = (endPos - source):Normalize()
+            local dist, step = source:Distance(endPos), 0
+            while step <= dist do
+                local pos = (source + dir * step):To3D()
+                if step > dist - 1 then break end
+                step = step + math.min(dist - step, 35)
+                if nav_mesh:is_wall(pos.x, pos.y, pos.z) then
+                    result[#result + 1] = pos; break
+                end
+            end
+        end
+    end
+    return result
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetHeroAggro(unit)
+    return self.attacks:Where(function(a) return
+        not a.processed and a.source.is_hero and
+        unit.object_id == a.target.object_id end)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetHitChance(input, output, unit)
+    -- no solution found
+    if output.cast_pos == nil then return -2 end
+
+    -- cast position is out of range
+    local source = Point:New(input.source)
+    local castPos = Point:New(output.cast_pos)
+    local predPos = Point:New(output.pred_pos)
+    local distance = source:Distance(input.type
+        == "circular" and castPos or predPos)
+    if distance > input.range then return 0 end
+
+    -- skillshot is a missile and collides the units
+    if input.collision and #self:GetCollision(
+        input, castPos, unit) > 0 then return -1 end
+
+    -- unit is dashing, pre-dashing or blinking
+    local data = self.data[unit.object_id]
+    if #data.blink > 0 or #data.preDash > 0
+        or data.dashing then return 2 end
+
+    -- calculate skillshot arrival time
+    local distance = source:Distance(castPos)
+    local timeToHit = distance / input.speed +
+        input.delay + self.internalDelay + self:Latency()
+
+    -- unit is invulnerable for this time, he won't get hit
+    local invulnerability = self:GetInvulnerableDuration(unit)
+    if invulnerability > timeToHit then return -2 end
+
+    -- we haven't seen an unit any single time
+    local invTime = self:GetInvisibleDuration(unit)
+    if invTime == math.huge then return -2 end
+
+    -- unit has been standing for too long
+    if invTime <= 0 and #data.waypoints <= 1
+        and game.game_time - data.pathTimer >
+        timeToHit + 1.5 then return 1 end
+
+    -- gather remaining dependencies
+    local hitbox = (input.type ~= "conic" and
+        input.radius or math.min(input.range - distance,
+        distance, distance * (input.angle or 50) / 90))
+        + (input.hitbox and unit.bounding_radius or 0)
+    local moveSpeed = self:GetMovementSpeed(unit)
+    local reactionTime = self:GetReactionTime(unit)
+    local immobility = self:GetImmobileDuration(unit)
+
+    -- calculate hitchance
+    return math.min(1, hitbox / moveSpeed / math.max(0,
+        timeToHit - reactionTime + invTime - immobility))
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetImmobileDuration(unit)
+    local duration = Linq(unit.buffs)
+        :Where(function(b)
+            return b.is_valid and b.duration > 0 and
+            b.count > 0 and CrowdControls[b.type] end)
+        :Aggregate(function(current, b)
+            local remaining = b.end_time - game.game_time
+            return math.max(0, current, remaining) end)
+    local data = self.data[unit.object_id]
+    local castEndTime = data and data.castEndTimer or 0
+    return math.max(castEndTime - game.game_time, duration)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetInvisibleDuration(unit)
+    local data = self.data[unit.object_id]
+    if not data then return math.huge end
+    local timer = data.miaTimer
+    return timer == 0 and 0 or timer < 0 and
+        math.huge or (game.game_time - timer)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetInvulnerableDuration(unit)
+    for _, buff in ipairs(unit.buffs) do
+        if buff.is_valid and buff.duration > 0 and buff.count > 0 
+            and buff.type == BuffType.Invulnerability then
+            local span = buff.end_time - game.game_time
+            if span <= 5 then return math.max(0, span) end
+        end
+    end
+    return 0
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetMinionAggro(unit)
+    return self.attacks:Where(function(a) return
+        not a.processed and a.source.is_minion and
+        unit.object_id == a.target.object_id end)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetReactionTime(unit)
+    local data = self.data[unit.object_id]
+    if not data then return 0.0 end
+    local heroPos = Point:New(myHero.origin)
+    local unitPos = Point:New(unit.origin)
+    local dir = unitPos + Point:New(unit.direction) * 5
+    local angle = math.rad(heroPos:AngleBetween(unitPos, dir))
+    local reaction = math.abs(1 - math.sin(angle)) * 0.215
+    return math.max(game.game_time - data.pathTimer <=
+        self.internalDelay and 0.125 or 0.0, reaction)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetTurretAggro(unit)
+    return self.attacks:Where(function(a) return
+        not a.processed and a.source.is_turret and
+        unit.object_id == a.target.object_id end)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetAOEPrediction(input, unit)
+    -- invalid unit, input or source
+    if not unit or not input or not input.source
+        then return PredictionOutput:New() end
+
+    -- save unit as the star target
+    local units = Linq()
+    local op = self:GetPrediction(input, unit)
+    if op.hit_chance <= 0 then return op end
+    units[#units + 1] = {origin = op.pred_pos,
+        bounding_radius = unit.bounding_radius}
+
+    -- add valid candidates
+    for _, enemy in pairs(self.enemies) do
+        if self:IsValid(enemy) == true and
+            enemy.object_id ~= unit.object_id then
+            local o = self:GetPrediction(input, enemy)
+            if o.cast_pos and o.hit_chance > 0 then
+                units[#units + 1] = {origin = o.pred_pos,
+                    bounding_radius = enemy.bounding_radius}
+            end
+        end
+    end
+
+    -- calculate AoE position
+    local output = PredictionOutput:New()
+    local source = Point:New(input.source)
+    local aoe = self:GetAOEPosition(input, units, units[1])
+    output.cast_pos = aoe.hit_count > 1 and aoe.position or op.cast_pos
+    output.pred_pos = aoe.hit_count > 1 and aoe.position or op.pred_pos
+    output.hit_chance = self:GetHitChance(input, output, unit)
+    local dist = source:Distance(Point:New(output.cast_pos))
+    output.time_to_hit = dist / input.speed + input.delay
+    output.hit_count = math.max(1, aoe.hit_count)
+    return output
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetFastPrediction(source, unit, speed, delay, skipLatency)
+    if not unit or not unit.is_alive then return nil end
+    local data = self.data[unit.object_id]
+    local waypoints = data ~= nil and
+        data.waypoints or self:GetWaypoints(unit)
+    if #waypoints == 0 then return nil end
+    local moveSpeed = self:GetMovementSpeed(unit)
+    local delay, y = delay + (skipLatency and 0 or
+        self:Latency() + self.internalDelay), unit.origin.y
+    waypoints = self:CutPath(waypoints, moveSpeed * delay)
+    if #waypoints == 1 or speed == 0 or speed >=
+        9999 then return waypoints[1]:To3D(y) end
+    local source, totalTime = Point:New(source), 0
+    for i = 1, #waypoints - 1 do
+        local a, b = waypoints[i], waypoints[i + 1]
+        local reachTime = a:Distance(b) / moveSpeed
+        a = a:Extend(b, -moveSpeed * totalTime)
+        local t, pos = self:Interception(a, b,
+            source, moveSpeed, speed, totalTime)
+        if t > 0 and t <= totalTime + reachTime and
+            t >= totalTime then return pos:To3D(y) end
+        totalTime = totalTime + reachTime
+    end
+    return waypoints[#waypoints]:To3D(y)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetHealthPrediction(unit, time, delay)
+    if time <= 0 then return unit.health end
+    local health, delay = unit.health, delay or 0
+    for _, attack in ipairs(self.attacks) do
+        if unit.object_id == attack.target.object_id
+            and attack.processed == false then
+            local target = Point:New(attack.target)
+            local landTime = attack.windup_time + attack.timer +
+                target:Distance(attack.start_pos) / attack.speed
+            if game.game_time >= landTime - time + delay then
+                health = health - attack.damage
+            end
+        end
+    end
+    return health
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetLaneClearHealthPrediction(unit, time)
+    local health = unit.health
+    for _, attack in ipairs(self.attacks:Concat(self.futureAttacks)) do
+        if game.game_time - 0.1 <= attack.timer + attack.animation_time
+            and unit.object_id == attack.target.object_id then
+            local target = Point:New(attack.target)
+            local landTime = attack.windup_time + attack.timer +
+                target:Distance(attack.start_pos) / attack.speed
+            while landTime <= game.game_time + time do
+                if landTime >= game.game_time then
+                    health = health - attack.damage end
+                landTime = landTime + attack.animation_time
+            end
+        end
+    end
+    return health
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetPositionAfter(unit, delta, skipLatency)
+    if not unit or not unit.is_alive then return nil end
+    local data = self.data[unit.object_id]
+    local waypoints = data ~= nil and
+        data.waypoints or self:GetWaypoints(unit)
+    if #waypoints <= 1 then return unit.origin end
+    local invTime = data ~= nil and data.miaTimer > 0
+        and (game.game_time - data.miaTimer) or 0
+    local delay = delta + (skipLatency and 0 or
+        self:Latency() + self.internalDelay)
+    local speed = self:GetMovementSpeed(unit)
+    local distance = speed * delay
+    local y = unit.origin.y
+    for i = 1, #waypoints - 1 do
+        local a, b = waypoints[i], waypoints[i + 1]
+        local dist = a:Distance(b)
+        if dist >= distance then return
+            a:Extend(b, distance):To3D(y) end
+        distance = distance - dist
+    end
+    return waypoints[#waypoints]:To3D(y)
+end
+----------------------------------------------------------------------------------------
+
+function Pred:GetPrediction(input, unit)
+    -- validate input, unit and source
+    local output = PredictionOutput:New()
+    if not unit or not input or not unit.is_alive
+        or not input.source then return output end
+
+    local data = self.data[unit.object_id]
+    if not data then return output end
+    local hitbox = (input.radius or 0) +
+        (input.hitbox and unit.boundingRadius or 0)
+    local unitPos = Point:New(unit.origin)
+    local source = Point:New(input.source)
+    local speed = unit.move_speed or 315
+    local missile = input.type == "linear"
+        and input.speed ~= math.huge
+    local y = unit.origin.y
+
+    -- handle extra cases like dashes, pre-dashes and blinks
+    if data.blink.pos ~= nil then local blink = data.blink
+        local t1 = source:Distance(unitPos) / input.speed + input.delay
+        local t2 = source:Distance(blink.pos) / input.speed + input.delay
+        if missile == true then t1 = t1 - hitbox / input.speed end
+        if missile == true then t2 = t2 - hitbox / input.speed end
+        local remain = math.max(0, blink.endTime - game.game_time)
+        output.cast_pos = t1 < remain and unitPos:To3D(y) or t2 <=
+            remain + hitbox / speed and blink.pos:To3D(y) or nil
+        output.pred_pos = output.cast_pos or blink.pos:To3D(y)
+        output.hit_chance = output.cast_pos ~= nil and 2 or -2
+    elseif data.preDash.pos ~= nil then local preDash = data.preDash
+        local time = source:Distance(preDash.pos) / input.speed + input.delay
+        if missile == true then time = time - hitbox / input.speed end
+        local remain = math.max(0, preDash.endTime - game.game_time)
+        output.cast_pos = time < remain and preDash.pos:To3D(y) or nil
+        output.pred_pos = output.cast_pos or preDash.pos:To3D(y)
+        output.hit_chance = output.cast_pos ~= nil and 2 or -2
+    else
+        output = self:PredictOnPath(input, unit)
+        if data.dashing and #data.waypoints >= 2 then
+            local pos = Point:New(output.pred_pos)
+            local last = data.waypoints[#data.waypoints]
+            local length = unitPos:Distance(last)
+            local time = source:Distance(last) / input.speed + input.delay
+            if missile == true then time = time - hitbox / input.speed end
+            local remain = length / unit.path.dash_speed + hitbox / speed
+            if pos == last and time > remain then output.cast_pos = nil
+            else output.cast_pos = output.pred_pos end
+        end
+        output.hit_chance = self:GetHitChance(input, output, unit)
+    end
+
+    -- calculate skillshot arrival time
+    if output.hit_chance < 0 then return output end
+    local castPos = Point:New(output.cast_pos)
+    output.time_to_hit = source:Distance(
+        castPos) / input.speed + input.delay
+    if missile == true and output.hit_chance == 2 then
+        local threshold = hitbox / (input.speed or math.huge)
+        output.time_to_hit = output.time_to_hit - threshold
+    end
+
+    return output
+end
+----------------------------------------------------------------------------------------
+
+function Pred:PredictOnPath(input, unit, skipLatency)
+    -- return if waypoints do not exist
+    local output = PredictionOutput:New()
+    local data = self.data[unit.object_id]
+    local waypoints = data ~= nil and
+        data.waypoints or self:GetWaypoints(unit)
+    if #waypoints == 0 then return output end
+
+    -- unit has no moving path
+    local y = unit.origin.y
+    if #waypoints == 1 then
+        local pos = waypoints[1]:To3D(y)
+        output.pred_pos, output.cast_pos = pos, pos
+        return output
+    end
+
+    -- calc hitbox + total skillshot delay
+    local hitbox = (input.radius or 0) +
+        (input.hitbox and unit.bounding_radius or 0)
+    local delay = input.delay + (skipLatency and 0
+        or self:Latency() + self.internalDelay)
+    local speed = self:GetMovementSpeed(unit)
+    local threshold = speed * delay - hitbox
+
+    -- skillshot speed is infinite
+    if input.speed == 0 or input.speed >= 9999 then
+        output.pred_pos = self:CutPath(waypoints, threshold + hitbox)[1]:To3D(y)
+        output.cast_pos = self:CutPath(waypoints, threshold)[1]:To3D(y)
+        return output
+    end
+
+    -- predict the unit path after a skillshot delay
+    waypoints = self:CutPath(waypoints, threshold)
+
+    -- for each path segment calculate the interception time
+    local source, totalTime = Point:New(input.source), 0
+    for i = 1, #waypoints - 1 do
+        local a, b = waypoints[i], waypoints[i + 1]
+        local reachTime = a:Distance(b) / speed
+        a = a:Extend(b, -speed * totalTime)
+        local t, pos = self:Interception(a, b,
+            source, speed, input.speed, totalTime)
+
+        -- valid interception time must be positive
+        if t > 0 and t >= totalTime and t <= totalTime + reachTime then
+            local threshold = speed * t + hitbox
+            output.pred_pos = self:CutPath(waypoints, threshold)[1]:To3D(y)
+            output.cast_pos = pos:To3D(y); return output
+        end
+
+        -- check next path segment
+        totalTime = totalTime + reachTime
+    end
+
+    -- no solution found, unit is completing his path
+    local pos = waypoints[#waypoints]:To3D(y)
+    output.pred_pos, output.cast_pos = pos, pos
+    return output
+end
+
+--------------------
+-- Prediction API --
+
+local prediction = Pred:New(0.0167, 30)
+
+_G.Prediction = {
+    calc_auto_attack_damage = function(self, source, unit)
+        return prediction:CalcAutoAttackDamage(source, unit) end,
+    get_aoe_prediction = function(self, input, unit)
+        return prediction:GetAOEPrediction(input, unit) end,
+    get_aoe_position = function(self, input, points, star_target)
+        return prediction:GetAOEPosition(input, Linq(points), star_target) end,
+    get_collision = function(self, input, end_pos, exclude)
+        return prediction:GetCollision(input, end_pos, exclude) end,
+    get_fast_prediction = function(self, source, unit, speed, delay)
+        return prediction:GetFastPrediction(source, unit, speed, delay) end,
+    get_health_prediction = function(self, unit, delta, delay)
+        return prediction:GetHealthPrediction(unit, delta, delay) end,
+    get_lane_clear_health_prediction = function(self, unit, delta)
+        return prediction:GetLaneClearHealthPrediction(unit, delta) end,
+    get_position_after = function(self, unit, delta, skip_latency)
+        return prediction:GetPositionAfter(unit, delta, skip_latency) end,
+    get_prediction = function(self, input, unit)
+        return prediction:GetPrediction(input, unit) end,
+    get_hero_aggro = function(self, unit)
+        return prediction:GetHeroAggro(unit) end,
+    get_immobile_duration = function(self, unit)
+        return prediction:GetImmobileDuration(unit) end,
+    get_invisible_duration = function(self, unit)
+        return prediction:GetInvisibleDuration(unit) end,
+    get_invulnerable_duration = function(self, unit)
+        return prediction:GetInvulnerableDuration(unit) end,
+    get_minion_aggro = function(self, unit)
+        return prediction:GetMinionAggro(unit) end,
+    get_movement_speed = function(self, unit)
+        return prediction:GetMovementSpeed(unit) end,
+    get_turret_aggro = function(self, unit)
+        return prediction:GetTurretAggro(unit) end,
+    get_waypoints = function(self, unit)
+        return prediction:GetWaypoints(unit):Select(
+        function(w) return w:To3D(unit.origin.y) end) end,
+    is_loaded = function() return prediction.loaded end,
+    set_collision_buffer = function(self, buffer)
+        menu:set_value(prediction.buffer, buffer) end,
+    set_internal_delay = function(self, delay)
+        prediction.internalDelay = delay end
+}
+
+AutoUpdate()

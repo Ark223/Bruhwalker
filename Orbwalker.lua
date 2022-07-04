@@ -675,7 +675,7 @@ function Damage:__init()
             local buff = args.unit:get_buff("VayneSilveredDebuff")
             if not buff or buff.count ~= 2 then return end
             local lvl = spellbook:get_spell_slot(SLOT_W).level
-            local damage = math.max((0.015 + 0.025 * lvl)
+            local damage = math.max((0.02 + 0.02 * lvl)
                 * args.unit.max_health, 35 + 15 * lvl)
             if not args.unit.champ_name:find("Minion")
                 and args.unit.is_minion == true and

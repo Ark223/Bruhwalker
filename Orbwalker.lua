@@ -1,5 +1,5 @@
 
-local Version = 1.26
+local Version = 1.27
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()
@@ -268,8 +268,8 @@ function Damage:__init()
         ["Draven"] = function(args) local source = args.source
             if not source:has_buff("DravenSpinningAttack") then return end
             local lvl = spellbook:get_spell_slot(SLOT_Q).level
-            args.rawPhysical = args.rawPhysical + 35 + 5 * lvl +
-                (0.6 + 0.1 * lvl) * source.bonus_attack_damage
+            args.rawPhysical = args.rawPhysical + 40 + 5 * lvl +
+                (0.65 + 0.1 * lvl) * source.bonus_attack_damage
         end,
         ["DrMundo"] = function(args) local source = args.source
             if not source:has_buff("DrMundoE") then return end
@@ -422,7 +422,7 @@ function Damage:__init()
                 + 0.1 * source.bonus_attack_damage end
             if source:has_buff("JudicatorRighteousFury") then
                 args.rawMagical = args.rawMagical + (7 + lvl +
-                    source.ability_power * 0.01 * 2) * 0.01 *
+                    source.ability_power * 0.01 * 1.5) * 0.01 *
                     (args.unit.max_health - args.unit.health)
             end
         end,
@@ -675,7 +675,7 @@ function Damage:__init()
             local buff = args.unit:get_buff("VayneSilveredDebuff")
             if not buff or buff.count ~= 2 then return end
             local lvl = spellbook:get_spell_slot(SLOT_W).level
-            local damage = math.max((0.015 + 0.025 * lvl)
+            local damage = math.max((0.02 + 0.02 * lvl)
                 * args.unit.max_health, 35 + 15 * lvl)
             if not args.unit.champ_name:find("Minion")
                 and args.unit.is_minion == true and

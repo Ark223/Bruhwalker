@@ -268,8 +268,8 @@ function Damage:__init()
         ["Draven"] = function(args) local source = args.source
             if not source:has_buff("DravenSpinningAttack") then return end
             local lvl = spellbook:get_spell_slot(SLOT_Q).level
-            args.rawPhysical = args.rawPhysical + 35 + 5 * lvl +
-                (0.6 + 0.1 * lvl) * source.bonus_attack_damage
+            args.rawPhysical = args.rawPhysical + 40 + 5 * lvl +
+                (0.65 + 0.1 * lvl) * source.bonus_attack_damage
         end,
         ["DrMundo"] = function(args) local source = args.source
             if not source:has_buff("DrMundoE") then return end

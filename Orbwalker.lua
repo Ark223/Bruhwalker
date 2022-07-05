@@ -1,5 +1,5 @@
 
-local Version = 1.26
+local Version = 1.27
 local Url = "https://raw.githubusercontent.com/Ark223/Bruhwalker/main/"
 
 local function AutoUpdate()

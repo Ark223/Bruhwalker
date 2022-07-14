@@ -1120,12 +1120,11 @@ function Data:IsMelee(unit)
 end
 
 function Data:IsValid(unit)
-    return unit and unit.is_valid and unit.is_visible
-        and unit.is_alive and unit.is_targetable
+    return unit and unit.is_valid
 end
 
 function Data:Latency()
-    return game.ping / 1000 + 0.05
+    return game.latency + 0.05
 end
 
 --------------------

@@ -1190,7 +1190,7 @@ function Geometry:IsInAutoAttackRange(unit)
     elseif myHero.champ_name == "Caitlyn"
         and (unit:has_buff("caitlynwsight")
         or unit:has_buff("CaitlynEMissile"))
-        then range = range + 425
+        then range = range + 650
     elseif self.b_zeri ~= nil and
         spellbook:can_cast(SLOT_Q) and
         menu:get_value(self.b_zeri) == 1
